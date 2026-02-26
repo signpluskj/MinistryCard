@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>봉사 카드 정보</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <h1>봉사 카드 정보</h1>
+        <div id="user-info" class="user-info"></div>
+      </header>
+      <main>
+        <div id="area-overlay" class="area-overlay hidden">
+          <div class="area-overlay-content">
+            <div class="area-overlay-header">
+              <span>구역번호</span>
+              <button id="close-areas" class="icon-button" type="button">✕</button>
+            </div>
+            <div id="area-list-overlay" class="list"></div>
+          </div>
+        </div>
+        <section id="config-panel" class="panel hidden">
+          <div class="panel-header">
+            <h2>연결 설정</h2>
+          </div>
+          <div class="panel-body">
+            <label class="field">
+              <span>앱스 스크립트 URL</span>
+              <input id="api-url-input" type="text" placeholder="https://script.google.com/macros/s/..." />
+            </label>
+            <button id="save-api-url">저장</button>
+          </div>
+        </section>
+        <section id="login-panel" class="panel">
+          <div class="panel-header">
+            <h2>로그인</h2>
+          </div>
+          <div class="panel-body">
+            <label class="field">
+              <span>이름</span>
+              <input id="name-input" type="text" />
+            </label>
+            <label class="field">
+              <span>비밀번호</span>
+              <input id="password-input" type="password" />
+            </label>
+            <button id="login-button">로그인</button>
+          </div>
+        </section>
+        <section id="dashboard" class="dashboard hidden">
+          <aside class="panel area-panel">
+            <div class="panel-header">
+              <h2>구역번호</h2>
+            </div>
+            <div id="area-list" class="panel-body list"></div>
+          </aside>
+          <section class="panel content-panel">
+            <div class="panel-header">
+              <h2 id="area-title" class="hidden">구역 선택</h2>
+              <div id="leader-actions" class="actions hidden">
+                <button id="start-service">오늘 봉사 시작</button>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div id="top-menu" class="top-menu">
+                <label class="menu-field">
+                  <span>구역</span>
+                  <select id="filter-area"></select>
+                </label>
+                <label class="menu-field">
+                  <span>방문상태</span>
+                  <select id="filter-visit">
+                    <option value="all">전체</option>
+                    <option value="meet">만남</option>
+                    <option value="absent">부재</option>
+                    <option value="invite">초대장</option>
+                    <option value="six">6개월</option>
+                    <option value="banned">방문금지</option>
+                  </select>
+                </label>
+                <label class="menu-field menu-search">
+                  <span>주소 검색어</span>
+                  <div class="search-row">
+                    <input id="search-input" type="text" placeholder="주소 입력" />
+                    <button id="search-button" type="button">검색</button>
+                  </div>
+                </label>
+              </div>
+              <div id="area-list-inline" class="list area-inline-list"></div>
+              <div id="status-message" class="status-message"></div>
+              <div id="card-list" class="card-grid"></div>
+              <form id="visit-form" class="visit-form hidden">
+                <h3 id="visit-title">방문 기록</h3>
+                <label class="field">
+                  <span>방문일</span>
+                  <input id="visit-date" type="date" />
+                </label>
+                <label class="field">
+                  <span>전도인</span>
+                  <input id="visit-worker" type="text" />
+                </label>
+                <label class="field">
+                  <span>결과</span>
+                  <select id="visit-result">
+                    <option value="만남">만남</option>
+                    <option value="부재">부재</option>
+                    <option value="초대장">초대장</option>
+                    <option value="6개월">6개월</option>
+                    <option value="방문금지">방문금지</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>메모</span>
+                  <input id="visit-note" type="text" />
+                </label>
+                <button id="save-visit" type="submit">저장</button>
+              </form>
+            </div>
+          </section>
+          <section id="admin-panel" class="panel admin-panel hidden">
+            <div class="panel-header">
+              <h2>관리자 보기</h2>
+            </div>
+            <div class="panel-body">
+              <div class="admin-grid">
+                <div>
+                  <h3>완료내역</h3>
+                  <div id="completion-list" class="list"></div>
+                </div>
+                <div>
+                  <h3>방문내역</h3>
+                  <div id="visit-list" class="list"></div>
+                </div>
+                <div>
+                  <h3>전도인 명단</h3>
+                  <div id="evangelist-list" class="list"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+    <div id="loading-indicator" class="loading-indicator hidden">
+      <div class="spinner"></div>
+      <span id="loading-text">데이터 불러오는 중...</span>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>
