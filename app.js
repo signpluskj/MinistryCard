@@ -1230,9 +1230,9 @@ const renderCards = () => {
         String(v == null ? "" : v).trim().replace(/\s+/g, "");
       const cardId = normalizeId(card["카드번호"]);
       const allRows = (state.data.visits || []).filter((row) => {
-        const rowCardId = normalizeId(
-          row["구역카드"] || row["카드번호"] || row["구역카드번호"]
-        );
+        const rawCard =
+          row["구역카드"] || row["카드번호"] || row["구역카드번호"] || "";
+        const rowCardId = normalizeId(rawCard);
         return rowCardId && rowCardId === cardId;
       });
       const lastYearRows = allRows.filter((row) => {
@@ -2094,6 +2094,11 @@ const login = async () => {
   }
   state.user = { role: res.role, name: res.name };
   elements.userInfo.textContent = `${state.user.name} (${state.user.role})`;
+  if (state.user.role === "관리자" || state.user.role === "인도자") {
+    elements.menuToggle.style.display = "inline-block";
+  } else {
+    elements.menuToggle.style.display = "none";
+  }
   elements.loginPanel.classList.add("hidden");
   elements.dashboard.classList.remove("hidden");
   await loadData();
