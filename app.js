@@ -48,6 +48,7 @@ const elements = {
   nameInput: document.getElementById("name-input"),
   passwordInput: document.getElementById("password-input"),
   loginButton: document.getElementById("login-button"),
+  refreshButton: document.getElementById("refresh-button"),
   apiUrlInput: document.getElementById("api-url-input"),
   saveApiUrl: document.getElementById("save-api-url"),
   userInfo: document.getElementById("user-info"),
@@ -575,8 +576,14 @@ const autoAssignCars = () => {
 };
 
 const saveCarAssignments = async () => {
+  const validCars =
+    state.carAssignments.filter((car) => {
+      const hasDriver = Boolean(car.driver);
+      const hasMembers = (car.members || []).some((name) => Boolean(name));
+      return hasDriver || hasMembers;
+    }) || [];
   const rows = [];
-  state.carAssignments.forEach((car) => {
+  validCars.forEach((car) => {
     const carId = car.carId;
     const driver = car.driver;
     const members = car.members || [];
@@ -661,6 +668,46 @@ const renderCarAssignmentsPanel = () => {
       item.dataset.carId = car.carId;
       item.textContent = name;
       membersBox.appendChild(item);
+    });
+    let pressTimer = null;
+    const clearPressTimer = () => {
+      if (pressTimer) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      }
+    };
+    const startPressTimer = () => {
+      clearPressTimer();
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        const hasDriver = Boolean(car.driver);
+        const hasMembers = (car.members || []).some((name) => Boolean(name));
+        if (hasDriver || hasMembers) {
+          return;
+        }
+        if (
+          window.confirm(
+            `차량 ${car.carId}에 배정된 사람이 없습니다.\n이 차량을 삭제하시겠습니까?`
+          )
+        ) {
+          state.carAssignments = (state.carAssignments || []).filter(
+            (c) => String(c.carId) !== String(car.carId)
+          );
+          renderCarAssignmentsPanel();
+        }
+      }, 800);
+    };
+    col.addEventListener("mousedown", (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+      startPressTimer();
+    });
+    col.addEventListener("touchstart", () => {
+      startPressTimer();
+    });
+    ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((type) => {
+      col.addEventListener(type, clearPressTimer);
     });
     col.append(header, membersBox);
     grid.appendChild(col);
@@ -782,6 +829,26 @@ const loadApiUrl = () => {
 const saveApiUrl = () => {
   state.apiUrl = DEFAULT_API_URL;
   elements.configPanel.classList.add("hidden");
+};
+
+const refreshAll = async () => {
+  setLoading(true, "데이터 새로고침 중...");
+  try {
+    await loadData();
+    renderAreas();
+    renderCards();
+    renderAdminPanel();
+    renderMyCarInfo();
+    if (state.currentMenu === "visits" && state.completionExpandedAreaId) {
+      renderVisitsView();
+    }
+    if (state.currentMenu === "car-assign") {
+      resetCarAssignmentsFromSaved();
+      renderCarAssignPopup();
+    }
+  } finally {
+    setLoading(false);
+  }
 };
 
 const apiRequest = async (action, payload = {}, method = "POST") => {
@@ -1292,7 +1359,7 @@ const renderVisitsView = () => {
     elements.statusMessage.textContent = "구역을 선택해 주세요.";
     return;
   }
-  elements.areaTitle.textContent = `완료 내역 · 구역 ${areaId}`;
+  elements.areaTitle.textContent = `완료 내역 · ${areaId}`;
   const completions = (state.data.completions || []).filter(
     (row) => String(row["구역번호"] || row["areaId"] || "") === String(areaId)
   );
@@ -1342,6 +1409,96 @@ const renderVisitsView = () => {
     });
   }
   elements.cardListHome.appendChild(list);
+};
+
+const renderCompletionOverlayList = () => {
+  if (!elements.completionAreaList) {
+    return;
+  }
+  const box = elements.completionAreaList;
+  box.innerHTML = "";
+  const completions = state.data.completions || [];
+  const byArea = {};
+  completions.forEach((row) => {
+    const areaId = String(row["구역번호"] || row["areaId"] || "");
+    if (!areaId) {
+      return;
+    }
+    if (!byArea[areaId]) {
+      byArea[areaId] = [];
+    }
+    byArea[areaId].push(row);
+  });
+  const areaIds = Object.keys(byArea).sort((a, b) => {
+    const na = Number(a);
+    const nb = Number(b);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) {
+      return na - nb;
+    }
+    return String(a).localeCompare(String(b), "ko-KR");
+  });
+  if (!areaIds.length) {
+    const empty = document.createElement("div");
+    empty.className = "list-item";
+    empty.textContent = "완료 내역이 없습니다.";
+    box.appendChild(empty);
+    return;
+  }
+  const expandedId = state.completionExpandedAreaId;
+  areaIds.forEach((areaId) => {
+    const item = document.createElement("div");
+    item.className = "list-item";
+    item.dataset.areaId = areaId;
+    const header = document.createElement("div");
+    header.textContent = `${areaId} · ${byArea[areaId].length}회 완료`;
+    item.appendChild(header);
+    const detail = document.createElement("div");
+    const list = byArea[areaId].slice().sort((a, b) => {
+      const da = parseVisitDate(a["완료날짜"] || a["completeDate"]);
+      const db = parseVisitDate(b["완료날짜"] || b["completeDate"]);
+      const va = da ? da.getTime() : 0;
+      const vb = db ? db.getTime() : 0;
+      return vb - va;
+    });
+    if (expandedId === areaId) {
+      if (!list.length) {
+        const empty = document.createElement("div");
+        empty.className = "card-history-empty";
+        empty.textContent = "완료 내역이 없습니다.";
+        detail.appendChild(empty);
+      } else {
+        list.forEach((row) => {
+          const entry = document.createElement("div");
+          entry.className = "card-history-item";
+          const startText = row["시작날짜"]
+            ? formatDate(row["시작날짜"])
+            : "";
+          const doneText = row["완료날짜"]
+            ? formatDate(row["완료날짜"])
+            : "";
+          const title = startText && doneText
+            ? `${startText} → ${doneText}`
+            : doneText || startText || "";
+          const leader = row["인도자"]
+            ? ` · 인도자: ${row["인도자"]}`
+            : "";
+          const memo = row["비고"] ? ` · ${row["비고"]}` : "";
+          entry.textContent = `${title}${leader}${memo}`;
+          detail.appendChild(entry);
+        });
+      }
+    } else {
+      detail.style.display = "none";
+    }
+    item.appendChild(detail);
+    item.addEventListener("click", () => {
+      const id = item.dataset.areaId || "";
+      state.completionExpandedAreaId =
+        state.completionExpandedAreaId === id ? null : id;
+      renderCompletionOverlayList();
+    });
+    box.appendChild(item);
+  });
 };
 
 const startServiceForArea = async (areaId) => {
@@ -1398,7 +1555,7 @@ const renderAdminPanel = () => {
     item.className = "list-item";
     item.dataset.areaId = areaId;
     const header = document.createElement("div");
-    header.textContent = `구역 ${areaId} · 카드 ${cards.length}장`;
+    header.textContent = `${areaId} · 카드 ${cards.length}장`;
     item.appendChild(header);
     const cardsBox = document.createElement("div");
     const expanded = selectedAreaId === areaId;
@@ -1446,11 +1603,11 @@ const renderAdminPanel = () => {
       cardsBox.appendChild(cardTable);
       const editorKey = selectedCardKey && selectedCardKey.startsWith(`${areaId}__`) ? selectedCardKey : null;
       if (editorKey) {
-        const editor = document.createElement("div");
-        const target = cards.find((card) => `${areaId}__${String(card["카드번호"] || "")}` === editorKey);
-        if (target) {
-          const areaText = document.createElement("div");
-          areaText.textContent = `구역 ${areaId}, 카드 ${String(target["카드번호"] || "")}`;
+          const editor = document.createElement("div");
+          const target = cards.find((card) => `${areaId}__${String(card["카드번호"] || "")}` === editorKey);
+          if (target) {
+            const areaText = document.createElement("div");
+            areaText.textContent = `${areaId}, 카드 ${String(target["카드번호"] || "")}`;
           const addrInput = document.createElement("input");
           addrInput.type = "text";
           addrInput.value = String(target["주소"] || "");
@@ -1740,7 +1897,7 @@ const renderAdminPanel = () => {
     item.className = "list-item";
     item.dataset.areaId = areaId;
     const header = document.createElement("div");
-    header.textContent = `구역 ${areaId} · 카드 ${list.length}장`;
+    header.textContent = `${areaId} · 카드 ${list.length}장`;
     item.appendChild(header);
     const box = document.createElement("div");
     const expanded = selectedBannedArea === areaId;
@@ -1801,7 +1958,7 @@ const renderAdminPanel = () => {
         if (target) {
           const editor = document.createElement("div");
           const info = document.createElement("div");
-          info.textContent = `구역 ${areaId}, 카드 ${String(
+          info.textContent = `${areaId}, 카드 ${String(
             target["카드번호"] || ""
           )}`;
           const stateText = document.createElement("div");
@@ -2059,6 +2216,14 @@ const saveVisit = async (event) => {
 
 elements.saveApiUrl.addEventListener("click", saveApiUrl);
 elements.loginButton.addEventListener("click", login);
+if (elements.refreshButton) {
+  elements.refreshButton.addEventListener("click", () => {
+    if (!state.user) {
+      return;
+    }
+    refreshAll();
+  });
+}
 elements.closeAreas.addEventListener("click", () => {
   elements.areaOverlay.classList.add("hidden");
 });
@@ -2184,7 +2349,11 @@ elements.carAssignPanel.addEventListener("dragend", (event) => {
 });
 
 elements.carAssignPanel.addEventListener("dragover", (event) => {
-  const zone = event.target.closest(".car-members");
+  const column = event.target.closest(".car-column");
+  if (!column) {
+    return;
+  }
+  const zone = column.querySelector(".car-members");
   if (!zone) {
     return;
   }
@@ -2192,7 +2361,11 @@ elements.carAssignPanel.addEventListener("dragover", (event) => {
 });
 
 elements.carAssignPanel.addEventListener("drop", (event) => {
-  const zone = event.target.closest(".car-members");
+  const column = event.target.closest(".car-column");
+  if (!column) {
+    return;
+  }
+  const zone = column.querySelector(".car-members");
   if (!zone) {
     return;
   }
@@ -2233,15 +2406,17 @@ elements.carAssignPanel.addEventListener("drop", (event) => {
   }
   cars.forEach((car) => {
     const first = (car.members || [])[0];
-    if (first) {
-      car.driver = first;
-    }
+    car.driver = first || "";
   });
   renderCarAssignPopup();
 });
 
 elements.carAssignPanel.addEventListener("click", (event) => {
-  const zone = event.target.closest(".car-members");
+  const column = event.target.closest(".car-column");
+  if (!column) {
+    return;
+  }
+  const zone = column.querySelector(".car-members");
   if (!zone) {
     return;
   }
@@ -2302,9 +2477,7 @@ elements.carAssignPanel.addEventListener("click", (event) => {
   }
   cars.forEach((car) => {
     const first = (car.members || [])[0];
-    if (first) {
-      car.driver = first;
-    }
+    car.driver = first || "";
   });
   renderCarAssignPopup();
 });
@@ -2343,50 +2516,7 @@ elements.sideMenu.addEventListener("click", (event) => {
     if (elements.completionOverlay) {
       elements.completionOverlay.classList.remove("hidden");
       document.body.style.overflow = "hidden";
-      if (elements.completionAreaList) {
-        const box = elements.completionAreaList;
-        box.innerHTML = "";
-        const completions = state.data.completions || [];
-        const byArea = {};
-        completions.forEach((row) => {
-          const areaId = String(row["구역번호"] || row["areaId"] || "");
-          if (!areaId) {
-            return;
-          }
-          if (!byArea[areaId]) {
-            byArea[areaId] = [];
-          }
-          byArea[areaId].push(row);
-        });
-        const areaIds = Object.keys(byArea).sort((a, b) => {
-          const na = Number(a);
-          const nb = Number(b);
-          if (!Number.isNaN(na) && !Number.isNaN(nb)) {
-            return na - nb;
-          }
-          return String(a).localeCompare(String(b), "ko-KR");
-        });
-        if (!areaIds.length) {
-          const empty = document.createElement("div");
-          empty.className = "list-item";
-          empty.textContent = "완료 내역이 없습니다.";
-          box.appendChild(empty);
-        } else {
-          areaIds.forEach((areaId) => {
-            const item = document.createElement("div");
-            item.className = "list-item";
-            item.textContent = `구역 ${areaId} · ${byArea[areaId].length}회 완료`;
-            item.addEventListener("click", () => {
-              state.completionExpandedAreaId = areaId;
-              elements.completionOverlay.classList.add("hidden");
-              document.body.style.overflow = "";
-              renderVisitsView();
-              renderAdminPanel();
-            });
-            box.appendChild(item);
-          });
-        }
-      }
+      renderCompletionOverlayList();
     } else {
       renderVisitsView();
       renderAdminPanel();
@@ -2495,7 +2625,7 @@ if (elements.adminCardDelete) {
     if (!cardNumber) {
       return;
     }
-    if (!window.confirm(`구역 ${areaId}, 카드 ${cardNumber}를 삭제하시겠습니까?`)) {
+    if (!window.confirm(`${areaId}, 카드 ${cardNumber}를 삭제하시겠습니까?`)) {
       return;
     }
     try {
