@@ -64,7 +64,7 @@ body {
 
 .car-assign-body {
   display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
+  grid-template-columns: 120px minmax(0, 1fr);
   gap: 12px;
   padding: 12px 16px 16px;
 }
@@ -87,13 +87,14 @@ body {
   border-radius: 6px;
   border: 1px solid #e2e8f0;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
   background: #ffffff;
   min-height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
+  width: 60px;
+  margin: 0 auto;
   white-space: nowrap;
 }
 
@@ -140,7 +141,7 @@ body {
 }
 
 .side-menu-content {
-  width: 260px;
+  width: 180px;
   background: #ffffff;
   box-shadow: 2px 0 10px rgba(15, 23, 42, 0.3);
   display: flex;
@@ -162,6 +163,13 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.side-menu-list .menu-separator span {
+  display: block;
+  width: 100%;
+  border-bottom: 1px solid #d1d5db;
+  margin: 6px 0;
 }
 
 .side-menu-list button {
@@ -345,11 +353,14 @@ button.secondary {
   padding: 12px;
   background: #f8fafc;
   cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .card.active {
   border-color: #1f6feb;
   background: #e8f0ff;
+  box-shadow: 0 0 0 2px rgba(31, 111, 235, 0.45);
 }
 
 .card-unvisited {
@@ -544,7 +555,9 @@ button.secondary {
   border-bottom: 1px solid #e2e8f0;
 }
 
-.area-overlay .list {
+#area-overlay .list,
+#completion-overlay .list,
+#car-assign-overlay .list {
   padding: 12px 16px 16px;
   overflow-y: auto;
   max-height: calc(100vh - 120px);
@@ -590,6 +603,10 @@ button.secondary {
 
 .admin-panel {
   grid-column: span 2;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  margin-bottom: 0;
 }
 
 .admin-grid {
@@ -600,6 +617,10 @@ button.secondary {
 
 .admin-overlay-body {
   padding: 12px 16px 16px;
+}
+
+.admin-overlay-body h3 {
+  display: none;
 }
 
 .admin-actions {
@@ -828,7 +849,7 @@ button.secondary {
     max-width: 100%;
   }
   .car-assign-body {
-    grid-template-columns: 140px minmax(0, 1fr);
+    grid-template-columns: 120px minmax(0, 1fr);
   }
   .car-assign-left {
     border-right: 1px solid #e2e8f0;

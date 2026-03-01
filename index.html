@@ -31,9 +31,12 @@
           </div>
           <ul class="side-menu-list">
             <li><button type="button" data-menu="cards">구역 카드</button></li>
-            <li><button type="button" data-menu="visits">완료 내역</button></li>
-            <li class="admin-only"><button type="button" data-menu="admin">관리자 화면</button></li>
             <li class="admin-only"><button type="button" data-menu="car-assign">차량 배정</button></li>
+            <li class="menu-separator"><span></span></li>
+            <li><button type="button" data-menu="visits">완료 내역</button></li>
+            <li class="admin-only"><button type="button" data-menu="admin-cards">구역카드 관리</button></li>
+            <li class="admin-only"><button type="button" data-menu="admin-ev">전도인 명단 관리</button></li>
+            <li class="admin-only"><button type="button" data-menu="admin-banned">방문금지 관리</button></li>
           </ul>
         </div>
       </nav>
@@ -83,7 +86,7 @@
         <div id="admin-overlay" class="area-overlay hidden">
           <div class="area-overlay-content">
             <div class="area-overlay-header">
-              <span>관리자 화면</span>
+              <span id="admin-overlay-title">구역카드 관리</span>
               <button id="close-admin" class="icon-button" type="button">✕</button>
             </div>
             <div class="admin-overlay-body">

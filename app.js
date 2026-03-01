@@ -1450,6 +1450,9 @@ const renderCompletionOverlayList = () => {
   areaIds.forEach((areaId) => {
     const item = document.createElement("div");
     item.className = "list-item";
+    if (expandedId === areaId) {
+      item.classList.add("active");
+    }
     item.dataset.areaId = areaId;
     const header = document.createElement("div");
     header.textContent = `${areaId} · ${byArea[areaId].length}회 완료`;
@@ -1529,14 +1532,32 @@ const startServiceForArea = async (areaId) => {
 };
 
 const renderAdminPanel = () => {
-  if (!state.user || (state.user.role === "전도인" && state.currentMenu !== "visits")) {
+  if (!state.user) {
     elements.adminPanel.classList.add("hidden");
     return;
   }
-  const showAdmin = state.user && (state.user.role === "관리자" || state.user.role === "인도자");
-  if (!showAdmin || state.currentMenu !== "admin") {
+  const showAdmin =
+    state.user.role === "관리자" || state.user.role === "인도자";
+  if (
+    !showAdmin ||
+    !["admin-cards", "admin-ev", "admin-banned"].includes(state.currentMenu)
+  ) {
     elements.adminPanel.classList.add("hidden");
     return;
+  }
+  const overlayTitleEl =
+    elements.adminOverlay &&
+    elements.adminOverlay.querySelector("#admin-overlay-title");
+  if (overlayTitleEl) {
+    if (state.currentMenu === "admin-cards") {
+      overlayTitleEl.textContent = "구역카드 관리";
+    } else if (state.currentMenu === "admin-ev") {
+      overlayTitleEl.textContent = "전도인 명단 관리";
+    } else if (state.currentMenu === "admin-banned") {
+      overlayTitleEl.textContent = "방문금지 관리";
+    } else {
+      overlayTitleEl.textContent = "";
+    }
   }
   elements.adminPanel.classList.remove("hidden");
   const byAreaCards = groupCardsByArea();
@@ -1556,6 +1577,9 @@ const renderAdminPanel = () => {
     const item = document.createElement("div");
     item.className = "list-item";
     item.dataset.areaId = areaId;
+    if (selectedAreaId === areaId) {
+      item.classList.add("active");
+    }
     const header = document.createElement("div");
     header.textContent = `${areaId} · 카드 ${cards.length}장`;
     item.appendChild(header);
@@ -1670,6 +1694,18 @@ const renderAdminPanel = () => {
     });
     elements.completionList.appendChild(item);
   });
+
+  const adminSections =
+    elements.adminPanel.querySelectorAll(".admin-grid > div");
+  if (adminSections.length === 3) {
+    const [cardsSection, evSection, bannedSection] = adminSections;
+    cardsSection.style.display =
+      state.currentMenu === "admin-cards" ? "" : "none";
+    evSection.style.display =
+      state.currentMenu === "admin-ev" ? "" : "none";
+    bannedSection.style.display =
+      state.currentMenu === "admin-banned" ? "" : "none";
+  }
 
   // 전도인 명단 관리: 표 형식 편집 (차량 정보 포함)
   const evangelists = state.data.evangelists || [];
@@ -1873,6 +1909,9 @@ const renderAdminPanel = () => {
     const item = document.createElement("div");
     item.className = "list-item";
     item.dataset.areaId = areaId;
+    if (selectedBannedArea === areaId) {
+      item.classList.add("active");
+    }
     const header = document.createElement("div");
     header.textContent = `${areaId} · 카드 ${list.length}장`;
     item.appendChild(header);
@@ -2487,6 +2526,17 @@ elements.sideMenu.addEventListener("click", (event) => {
   if (!key) {
     return;
   }
+  if (
+    (key === "admin-cards" ||
+      key === "admin-ev" ||
+      key === "admin-banned" ||
+      key === "car-assign") &&
+    (!state.user ||
+      (state.user.role !== "관리자" && state.user.role !== "인도자"))
+  ) {
+    alert("관리자 또는 인도자만 사용할 수 있습니다.");
+    return;
+  }
   state.currentMenu = key;
   elements.sideMenu.classList.add("hidden");
   if (key === "cards") {
@@ -2503,7 +2553,11 @@ elements.sideMenu.addEventListener("click", (event) => {
       renderVisitsView();
       renderAdminPanel();
     }
-  } else if (key === "admin") {
+  } else if (
+    key === "admin-cards" ||
+    key === "admin-ev" ||
+    key === "admin-banned"
+  ) {
     if (elements.adminOverlay) {
       elements.adminOverlay.classList.remove("hidden");
       document.body.style.overflow = "hidden";
