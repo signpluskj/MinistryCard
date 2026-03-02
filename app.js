@@ -1266,13 +1266,20 @@ const renderCards = () => {
         const rowCardId = normalizeId(rawCard);
         return rowCardId && rowCardId === cardId;
       });
-      const historyRows = allRows.slice().sort((a, b) => {
-        const db = parseVisitDate(getVisitDateValue(b));
-        const da = parseVisitDate(getVisitDateValue(a));
-        const tb = db ? db.getTime() : 0;
-        const ta = da ? da.getTime() : 0;
-        return tb - ta;
-      });
+      const historyRows = allRows
+        .map((row, index) => ({ row, index }))
+        .sort((a, b) => {
+          const db = parseVisitDate(getVisitDateValue(b.row));
+          const da = parseVisitDate(getVisitDateValue(a.row));
+          const tb = db ? db.getTime() : 0;
+          const ta = da ? da.getTime() : 0;
+          if (tb !== ta) {
+            return tb - ta;
+          }
+          // 같은 날짜일 때는 원래 순서 기준으로 나중에 추가된 것을 위로
+          return b.index - a.index;
+        })
+        .map((x) => x.row);
       const history = document.createElement("div");
       history.className = "card-history";
       if (!historyRows.length) {
