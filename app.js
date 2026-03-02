@@ -1266,19 +1266,13 @@ const renderCards = () => {
         const rowCardId = normalizeId(rawCard);
         return rowCardId && rowCardId === cardId;
       });
-      const lastYearRows = allRows.filter((row) => {
-        const d = parseVisitDate(getVisitDateValue(row));
-        return d && d >= oneYearAgo;
+      const historyRows = allRows.slice().sort((a, b) => {
+        const db = parseVisitDate(getVisitDateValue(b));
+        const da = parseVisitDate(getVisitDateValue(a));
+        const tb = db ? db.getTime() : 0;
+        const ta = da ? da.getTime() : 0;
+        return tb - ta;
       });
-      const historyRows = (lastYearRows.length ? lastYearRows : allRows).sort(
-        (a, b) => {
-          const db = parseVisitDate(getVisitDateValue(b));
-          const da = parseVisitDate(getVisitDateValue(a));
-          const tb = db ? db.getTime() : 0;
-          const ta = da ? da.getTime() : 0;
-          return tb - ta;
-        }
-      );
       const history = document.createElement("div");
       history.className = "card-history";
       if (!historyRows.length) {
