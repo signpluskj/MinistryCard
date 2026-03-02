@@ -203,6 +203,8 @@
                     <option value="만남">만남</option>
                     <option value="부재">부재</option>
                     <option value="초대장">초대장</option>
+                    <option value="재방">재방</option>
+                    <option value="연구">연구</option>
                     <option value="6개월">6개월</option>
                     <option value="방문금지">방문금지</option>
                   </select>
@@ -211,7 +213,15 @@
                   <span>메모</span>
                   <input id="visit-note" type="text" />
                 </label>
-                <button id="save-visit" type="submit">저장</button>
+                <div class="visit-actions">
+                  <button id="save-visit" type="submit">저장</button>
+                  <div class="visit-flag-buttons">
+                    <button id="visit-clear-revisit" type="button">재방 해제</button>
+                    <button id="visit-clear-study" type="button">연구 해제</button>
+                    <button id="visit-clear-six" type="button">6개월 해제</button>
+                    <button id="visit-clear-banned" type="button">방문금지 해제</button>
+                  </div>
+                </div>
               </form>
             </div>
           </section>

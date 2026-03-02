@@ -63,6 +63,10 @@ const elements = {
   visitResult: document.getElementById("visit-result"),
   visitNote: document.getElementById("visit-note"),
   visitTitle: document.getElementById("visit-title"),
+  visitClearRevisit: document.getElementById("visit-clear-revisit"),
+  visitClearStudy: document.getElementById("visit-clear-study"),
+  visitClearSix: document.getElementById("visit-clear-six"),
+  visitClearBanned: document.getElementById("visit-clear-banned"),
   statusMessage: document.getElementById("status-message"),
   areaOverlay: document.getElementById("area-overlay"),
   closeAreas: document.getElementById("close-areas"),
@@ -1164,6 +1168,18 @@ const renderCards = () => {
       invite.className = "badge badge-invite";
       invite.textContent = "초대장";
       badgeRow.appendChild(invite);
+    }
+    if (card["재방"]) {
+      const rv = document.createElement("span");
+      rv.className = "badge badge-revisit";
+      rv.textContent = "재방";
+      badgeRow.appendChild(rv);
+    }
+    if (card["연구"]) {
+      const st = document.createElement("span");
+      st.className = "badge badge-study";
+      st.textContent = "연구";
+      badgeRow.appendChild(st);
     } else if (card["6개월"]) {
       const six = document.createElement("span");
       six.className = "badge badge-sixmonths";
@@ -1204,17 +1220,12 @@ const renderCards = () => {
     naver.target = "_blank";
     naver.rel = "noopener noreferrer";
     naver.textContent = "네이버";
-    const tmap = document.createElement("a");
-    tmap.href = "https://www.tmap.co.kr";
-    tmap.target = "_blank";
-    tmap.rel = "noopener noreferrer";
-    tmap.textContent = "티맵";
     const google = document.createElement("a");
     google.href = `https://www.google.com/maps/search/?api=1&query=${encoded}`;
     google.target = "_blank";
     google.rel = "noopener noreferrer";
     google.textContent = "구글";
-    nav.append(kakao, naver, tmap, google);
+    nav.append(kakao, naver, google);
     cardEl.append(title, address, visitInfo);
     if (regular.textContent) {
       cardEl.appendChild(regular);
@@ -1642,6 +1653,18 @@ const renderAdminPanel = () => {
         deleteBtn.dataset.cardAction = "delete-card";
         actionTd.appendChild(saveBtn);
         actionTd.appendChild(deleteBtn);
+      const hasFlags =
+        isTrueValue(card["재방"]) ||
+        isTrueValue(card["연구"]) ||
+        isTrueValue(card["6개월"]) ||
+        isTrueValue(card["방문금지"]);
+      if (hasFlags) {
+        const clearBtn = document.createElement("button");
+        clearBtn.type = "button";
+        clearBtn.textContent = "해제";
+        clearBtn.dataset.cardAction = "clear-flags";
+        actionTd.appendChild(clearBtn);
+      }
         tr.append(noTd, addrTd, detailTd, memoTd, actionTd);
         cardTbody.appendChild(tr);
       });
@@ -2065,6 +2088,10 @@ const selectCard = (card) => {
     ? "만남"
     : meetVal === false || isTrueValue(absentVal)
     ? "부재"
+    : card["재방"]
+    ? "재방"
+    : card["연구"]
+    ? "연구"
     : card["초대장"]
     ? "초대장"
     : card["6개월"]
@@ -2073,6 +2100,7 @@ const selectCard = (card) => {
     ? "방문금지"
     : "만남";
   elements.visitNote.value = "";
+  updateVisitFlagButtons();
   renderCards();
 };
 
@@ -2144,6 +2172,58 @@ const resetRecentVisits = async () => {
   renderAdminPanel();
 };
 
+const updateVisitFlagButtons = () => {
+  const isAdmin =
+    state.user &&
+    (state.user.role === "관리자" || state.user.role === "인도자");
+  const card = state.selectedCard;
+  const buttons = [
+    elements.visitClearRevisit,
+    elements.visitClearStudy,
+    elements.visitClearSix,
+    elements.visitClearBanned
+  ];
+  buttons.forEach((btn) => {
+    if (!btn) return;
+    if (!isAdmin || !card) {
+      btn.classList.add("hidden");
+    } else {
+      btn.classList.remove("hidden");
+    }
+  });
+  if (!isAdmin || !card) {
+    return;
+  }
+  if (elements.visitClearRevisit) {
+    if (isTrueValue(card["재방"])) {
+      elements.visitClearRevisit.classList.remove("hidden");
+    } else {
+      elements.visitClearRevisit.classList.add("hidden");
+    }
+  }
+  if (elements.visitClearStudy) {
+    if (isTrueValue(card["연구"])) {
+      elements.visitClearStudy.classList.remove("hidden");
+    } else {
+      elements.visitClearStudy.classList.add("hidden");
+    }
+  }
+  if (elements.visitClearSix) {
+    if (isTrueValue(card["6개월"])) {
+      elements.visitClearSix.classList.remove("hidden");
+    } else {
+      elements.visitClearSix.classList.add("hidden");
+    }
+  }
+  if (elements.visitClearBanned) {
+    if (isTrueValue(card["방문금지"])) {
+      elements.visitClearBanned.classList.remove("hidden");
+    } else {
+      elements.visitClearBanned.classList.add("hidden");
+    }
+  }
+};
+
 const saveVisit = async (event) => {
   event.preventDefault();
   if (!state.selectedArea || !state.selectedCard) {
@@ -2210,8 +2290,14 @@ const saveVisit = async (event) => {
       updatedCard["만남"] = res?.cardUpdate?.meet ?? (result === "만남");
       updatedCard["부재"] = res?.cardUpdate?.absent ?? (result === "부재");
       updatedCard["초대장"] = res?.cardUpdate?.invite ?? (result === "초대장");
-      updatedCard["6개월"] = res?.cardUpdate?.sixMonths ?? (result === "6개월");
-      updatedCard["방문금지"] = res?.cardUpdate?.banned ?? (result === "방문금지");
+      updatedCard["6개월"] =
+        res?.cardUpdate?.sixMonths ?? (result === "6개월");
+      updatedCard["방문금지"] =
+        res?.cardUpdate?.banned ?? (result === "방문금지");
+      updatedCard["재방"] =
+        res?.cardUpdate?.revisit ?? (result === "재방");
+      updatedCard["연구"] =
+        res?.cardUpdate?.study ?? (result === "연구");
       state.selectedCard = updatedCard;
     }
     if (res.complete) {
@@ -2280,6 +2366,158 @@ elements.filterVisit.addEventListener("change", () => {
   renderCards();
 });
 elements.visitForm.addEventListener("submit", saveVisit);
+
+if (elements.visitClearRevisit) {
+  elements.visitClearRevisit.addEventListener("click", async () => {
+    if (!state.selectedArea || !state.selectedCard) {
+      return;
+    }
+    if (!window.confirm("이 카드의 재방 표시를 해제할까요?")) {
+      return;
+    }
+    try {
+      const res = await apiRequest("updateCardFlags", {
+        areaId: state.selectedArea,
+        cardNumber: state.selectedCard["카드번호"],
+        revisit: false
+      });
+      if (!res.success) {
+        alert(res.message || "재방 해제에 실패했습니다.");
+        return;
+      }
+      state.selectedCard["재방"] = false;
+      const found = state.data.cards.find(
+        (card) =>
+          String(card["구역번호"]) === String(state.selectedArea) &&
+          String(card["카드번호"]) === String(state.selectedCard["카드번호"])
+      );
+      if (found) {
+        found["재방"] = false;
+      }
+      renderAreas();
+      renderCards();
+      renderAdminPanel();
+      updateVisitFlagButtons();
+      setStatus("재방 표시가 해제되었습니다.");
+    } catch (e) {
+      alert("재방 해제 중 오류가 발생했습니다.");
+    }
+  });
+}
+
+if (elements.visitClearStudy) {
+  elements.visitClearStudy.addEventListener("click", async () => {
+    if (!state.selectedArea || !state.selectedCard) {
+      return;
+    }
+    if (!window.confirm("이 카드의 연구 표시를 해제할까요?")) {
+      return;
+    }
+    try {
+      const res = await apiRequest("updateCardFlags", {
+        areaId: state.selectedArea,
+        cardNumber: state.selectedCard["카드번호"],
+        study: false
+      });
+      if (!res.success) {
+        alert(res.message || "연구 해제에 실패했습니다.");
+        return;
+      }
+      state.selectedCard["연구"] = false;
+      const found = state.data.cards.find(
+        (card) =>
+          String(card["구역번호"]) === String(state.selectedArea) &&
+          String(card["카드번호"]) === String(state.selectedCard["카드번호"])
+      );
+      if (found) {
+        found["연구"] = false;
+      }
+      renderAreas();
+      renderCards();
+      renderAdminPanel();
+      updateVisitFlagButtons();
+      setStatus("연구 표시가 해제되었습니다.");
+    } catch (e) {
+      alert("연구 해제 중 오류가 발생했습니다.");
+    }
+  });
+}
+
+if (elements.visitClearSix) {
+  elements.visitClearSix.addEventListener("click", async () => {
+    if (!state.selectedArea || !state.selectedCard) {
+      return;
+    }
+    if (!window.confirm("이 카드의 6개월 표시를 해제할까요?")) {
+      return;
+    }
+    try {
+      const res = await apiRequest("updateCardFlags", {
+        areaId: state.selectedArea,
+        cardNumber: state.selectedCard["카드번호"],
+        sixMonths: false
+      });
+      if (!res.success) {
+        alert(res.message || "6개월 해제에 실패했습니다.");
+        return;
+      }
+      state.selectedCard["6개월"] = false;
+      const found = state.data.cards.find(
+        (card) =>
+          String(card["구역번호"]) === String(state.selectedArea) &&
+          String(card["카드번호"]) === String(state.selectedCard["카드번호"])
+      );
+      if (found) {
+        found["6개월"] = false;
+      }
+      renderAreas();
+      renderCards();
+      renderAdminPanel();
+      updateVisitFlagButtons();
+      setStatus("6개월 표시가 해제되었습니다.");
+    } catch (e) {
+      alert("6개월 해제 중 오류가 발생했습니다.");
+    }
+  });
+}
+
+if (elements.visitClearBanned) {
+  elements.visitClearBanned.addEventListener("click", async () => {
+    if (!state.selectedArea || !state.selectedCard) {
+      return;
+    }
+    if (!window.confirm("이 카드의 방문금지 표시를 해제할까요?")) {
+      return;
+    }
+    try {
+      const res = await apiRequest("updateCardFlags", {
+        areaId: state.selectedArea,
+        cardNumber: state.selectedCard["카드번호"],
+        banned: false
+      });
+      if (!res.success) {
+        alert(res.message || "방문금지 해제에 실패했습니다.");
+        return;
+      }
+      state.selectedCard["방문금지"] = false;
+      const found = state.data.cards.find(
+        (card) =>
+          String(card["구역번호"]) === String(state.selectedArea) &&
+          String(card["카드번호"]) === String(state.selectedCard["카드번호"])
+      );
+      if (found) {
+        found["방문금지"] = false;
+      }
+      renderAreas();
+      renderCards();
+      renderAdminPanel();
+      updateVisitFlagButtons();
+      setStatus("방문금지 표시가 해제되었습니다.");
+    } catch (e) {
+      alert("방문금지 해제 중 오류가 발생했습니다.");
+    }
+  });
+}
 
 elements.carAssignEvangelistList.addEventListener("click", (event) => {
   const item = event.target.closest(".ev-item");
@@ -2968,6 +3206,78 @@ if (elements.completionList) {
         setStatus("구역카드가 삭제되었습니다.");
       } catch (e) {
         alert("구역카드 삭제 중 오류가 발생했습니다.");
+      }
+    } else if (action === "clear-flags") {
+      const cards = state.data.cards || [];
+      const target = cards.find(
+        (card) =>
+          String(card["구역번호"]) === String(areaId) &&
+          String(card["카드번호"]) === String(baseCardNumber)
+      );
+      if (!target) {
+        alert("카드를 찾을 수 없습니다.");
+        return;
+      }
+      const flags = {
+        revisit: isTrueValue(target["재방"]),
+        study: isTrueValue(target["연구"]),
+        sixMonths: isTrueValue(target["6개월"]),
+        banned: isTrueValue(target["방문금지"])
+      };
+      if (!flags.revisit && !flags.study && !flags.sixMonths && !flags.banned) {
+        alert("해제할 표시가 없습니다.");
+        return;
+      }
+      const payload = { areaId, cardNumber: baseCardNumber };
+      if (flags.revisit && window.confirm("재방 표시를 해제할까요?")) {
+        payload.revisit = false;
+      }
+      if (flags.study && window.confirm("연구 표시를 해제할까요?")) {
+        payload.study = false;
+      }
+      if (flags.sixMonths && window.confirm("6개월 표시를 해제할까요?")) {
+        payload.sixMonths = false;
+      }
+      if (flags.banned && window.confirm("방문금지 표시를 해제할까요?")) {
+        payload.banned = false;
+      }
+      const hasChange = Object.keys(payload).some(
+        (key) => !["areaId", "cardNumber"].includes(key)
+      );
+      if (!hasChange) {
+        return;
+      }
+      try {
+        const res = await apiRequest("updateCardFlags", payload);
+        if (!res.success) {
+          alert(res.message || "상태 해제에 실패했습니다.");
+          return;
+        }
+        const found = state.data.cards.find(
+          (card) =>
+            String(card["구역번호"]) === String(areaId) &&
+            String(card["카드번호"]) === String(baseCardNumber)
+        );
+        if (found) {
+          if ("revisit" in res) {
+            found["재방"] = !!res.revisit;
+          }
+          if ("study" in res) {
+            found["연구"] = !!res.study;
+          }
+          if ("sixMonths" in res) {
+            found["6개월"] = !!res.sixMonths;
+          }
+          if ("banned" in res) {
+            found["방문금지"] = !!res.banned;
+          }
+        }
+        renderAreas();
+        renderCards();
+        renderAdminPanel();
+        setStatus("카드 상태가 해제되었습니다.");
+      } catch (e) {
+        alert("상태 해제 중 오류가 발생했습니다.");
       }
     }
   });
