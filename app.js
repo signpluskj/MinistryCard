@@ -1081,6 +1081,10 @@ const renderCards = () => {
     );
   } else if (state.filterVisit === "invite") {
     cards = cards.filter((card) => isTrueValue(card["초대장"]));
+  } else if (state.filterVisit === "revisit") {
+    cards = cards.filter((card) => isTrueValue(card["재방"]));
+  } else if (state.filterVisit === "study") {
+    cards = cards.filter((card) => isTrueValue(card["연구"]));
   } else if (state.filterVisit === "six") {
     cards = cards.filter((card) => isTrueValue(card["6개월"]));
   } else if (state.filterVisit === "banned") {
