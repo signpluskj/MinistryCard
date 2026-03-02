@@ -944,19 +944,24 @@ const renderAreas = () => {
       const areaInfo = state.data.areas.find(
         (row) => String(row["구역번호"]) === String(areaId)
       );
-      let dateSuffix = "";
+      let range = "";
       if (areaInfo) {
-        const start = areaInfo["시작날짜"] ? formatDate(areaInfo["시작날짜"]) : "";
         const end = areaInfo["완료날짜"] ? formatDate(areaInfo["완료날짜"]) : "";
-        const range =
-          start && end ? `${start} ~ ${end}` : start ? start : end ? end : "";
-        if (range) {
-          dateSuffix = ` [${range}]`;
-        }
+        range = end || "";
       }
       const isToday = areaInfo && isSameDay(areaInfo["시작날짜"], today);
       const title = document.createElement("span");
-      title.textContent = `${areaId}${dateSuffix}`;
+      title.className = "area-title";
+      const idSpan = document.createElement("span");
+      idSpan.className = "area-id";
+      idSpan.textContent = `${areaId}`;
+      title.appendChild(idSpan);
+      if (range) {
+        const dateSpan = document.createElement("span");
+        dateSpan.className = "area-date-range";
+        dateSpan.textContent = range;
+        title.appendChild(dateSpan);
+      }
       const badge = document.createElement("span");
       badge.className = "status-badge";
       const isComplete = areaCompletionStatus(grouped[areaId]);

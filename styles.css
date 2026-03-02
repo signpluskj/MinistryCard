@@ -286,6 +286,13 @@ main {
   flex-wrap: wrap;
 }
 
+.area-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
 .area-inline-list .list-item button {
   margin-left: 8px;
   padding: 6px 10px;
@@ -365,7 +372,7 @@ button.secondary {
 }
 
 .status-badge {
-  font-size: 12px;
+  font-size: 13px;
   padding: 2px 6px;
   border-radius: 6px;
   background: #e2e8f0;
@@ -460,7 +467,7 @@ button.secondary {
 }
 
 .card-line {
-  font-size: 12px;
+  font-size: 14px;
   margin-top: 2px;
 }
 
@@ -491,13 +498,27 @@ button.secondary {
   background: #ffedd5;
 }
 
+.area-date-range {
+  padding: 2px 6px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  font-size: 13px;
+  color: #374151;
+  background: #f9fafb;
+  vertical-align: middle;
+  margin-top: 1px;
+  font-weight: 400;
+}
+
 .card-history {
   margin-top: 8px;
   padding-top: 4px;
   border-top: 1px solid #e2e8f0;
   max-height: 120px;
   overflow-y: auto;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .card-history-item {
