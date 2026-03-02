@@ -2376,6 +2376,7 @@ if (elements.visitClearRevisit) {
       return;
     }
     try {
+      setLoading(true, "재방 표시 해제 중...");
       const res = await apiRequest("updateCardFlags", {
         areaId: state.selectedArea,
         cardNumber: state.selectedCard["카드번호"],
@@ -2401,6 +2402,8 @@ if (elements.visitClearRevisit) {
       setStatus("재방 표시가 해제되었습니다.");
     } catch (e) {
       alert("재방 해제 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
     }
   });
 }
@@ -2414,6 +2417,7 @@ if (elements.visitClearStudy) {
       return;
     }
     try {
+      setLoading(true, "연구 표시 해제 중...");
       const res = await apiRequest("updateCardFlags", {
         areaId: state.selectedArea,
         cardNumber: state.selectedCard["카드번호"],
@@ -2439,6 +2443,8 @@ if (elements.visitClearStudy) {
       setStatus("연구 표시가 해제되었습니다.");
     } catch (e) {
       alert("연구 해제 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
     }
   });
 }
@@ -2452,6 +2458,7 @@ if (elements.visitClearSix) {
       return;
     }
     try {
+      setLoading(true, "6개월 표시 해제 중...");
       const res = await apiRequest("updateCardFlags", {
         areaId: state.selectedArea,
         cardNumber: state.selectedCard["카드번호"],
@@ -2477,6 +2484,8 @@ if (elements.visitClearSix) {
       setStatus("6개월 표시가 해제되었습니다.");
     } catch (e) {
       alert("6개월 해제 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
     }
   });
 }
@@ -2490,6 +2499,7 @@ if (elements.visitClearBanned) {
       return;
     }
     try {
+      setLoading(true, "방문금지 표시 해제 중...");
       const res = await apiRequest("updateCardFlags", {
         areaId: state.selectedArea,
         cardNumber: state.selectedCard["카드번호"],
@@ -2515,6 +2525,8 @@ if (elements.visitClearBanned) {
       setStatus("방문금지 표시가 해제되었습니다.");
     } catch (e) {
       alert("방문금지 해제 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
     }
   });
 }
@@ -3247,6 +3259,7 @@ if (elements.completionList) {
       if (!hasChange) {
         return;
       }
+      setLoading(true, "카드 상태 해제 중...");
       try {
         const res = await apiRequest("updateCardFlags", payload);
         if (!res.success) {
@@ -3278,6 +3291,8 @@ if (elements.completionList) {
         setStatus("카드 상태가 해제되었습니다.");
       } catch (e) {
         alert("상태 해제 중 오류가 발생했습니다.");
+      } finally {
+        setLoading(false);
       }
     }
   });
