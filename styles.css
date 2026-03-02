@@ -130,6 +130,23 @@ body {
   justify-content: center;
 }
 
+.selected-person.tap-selected {
+  border-color: #1f6feb;
+  box-shadow: 0 0 0 2px rgba(31, 111, 235, 0.5);
+}
+
+.car-assign-unassigned-title {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b91c1c;
+}
+
+.car-assign-unassigned-none {
+  font-size: 12px;
+  color: #64748b;
+}
+
 .side-menu {
   position: fixed;
   inset: 0;
@@ -191,7 +208,7 @@ body {
 
 /* 차량 배정 메뉴 강조 */
 .side-menu-list button[data-menu="car-assign"] {
-  background: #ffffff;
+  background: #f3f4f6;
   color: #111827;
   font-weight: 600;
   border: 2px solid #1e3a8a;
@@ -199,7 +216,7 @@ body {
 
 .side-menu-list button[data-menu="car-assign"]:hover,
 .side-menu-list button[data-menu="car-assign"]:focus {
-  background: #f3f4f6;
+  background: #e5e7eb;
   color: #1e3a8a;
 }
 
@@ -836,6 +853,18 @@ button.secondary {
   white-space: nowrap;
   font-size: 14px;
   padding: 6px 10px;
+}
+
+.car-assign-reset {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.car-assign-reset:hover,
+.car-assign-reset:focus {
+  background: #fecaca;
+  color: #991b1b;
 }
 
 .car-assign-meta {

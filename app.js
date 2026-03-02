@@ -729,8 +729,24 @@ const renderSelectedParticipants = () => {
   if (!names.length) {
     return;
   }
+  const assigned = new Set();
+  (state.carAssignments || []).forEach((car) => {
+    if (car.driver) {
+      assigned.add(String(car.driver));
+    }
+    (car.members || []).forEach((name) => {
+      if (name) {
+        assigned.add(String(name));
+      }
+    });
+  });
+  const unassigned = names.filter((name) => !assigned.has(String(name)));
   const frag = document.createDocumentFragment();
-  names.forEach((name) => {
+  if (!unassigned.length) {
+    box.appendChild(frag);
+    return;
+  }
+  unassigned.forEach((name) => {
     const item = document.createElement("div");
     item.className = "selected-person";
     item.textContent = name;
@@ -2367,6 +2383,66 @@ elements.filterVisit.addEventListener("change", () => {
 });
 elements.visitForm.addEventListener("submit", saveVisit);
 
+if (elements.carAssignSelected) {
+  elements.carAssignSelected.addEventListener("click", (event) => {
+    const item = event.target.closest(".selected-person");
+    if (!carAssignTapSelection) {
+      if (!item) {
+        return;
+      }
+      const name = (item.textContent || "").trim();
+      if (!name) {
+        return;
+      }
+      const prev = elements.carAssignSelected.querySelector(
+        ".selected-person.tap-selected"
+      );
+      if (prev) {
+        prev.classList.remove("tap-selected");
+      }
+      item.classList.add("tap-selected");
+      carAssignTapSelection = { name, carId: "" };
+      return;
+    }
+    const selection = carAssignTapSelection;
+    carAssignTapSelection = null;
+    const prevCar = elements.carAssignPanel.querySelector(
+      ".car-member.tap-selected"
+    );
+    if (prevCar) {
+      prevCar.classList.remove("tap-selected");
+    }
+    const prevUn = elements.carAssignSelected.querySelector(
+      ".selected-person.tap-selected"
+    );
+    if (prevUn) {
+      prevUn.classList.remove("tap-selected");
+    }
+    if (!selection.name) {
+      return;
+    }
+    if (!selection.carId) {
+      return;
+    }
+    const cars = state.carAssignments || [];
+    const fromCar = cars.find(
+      (c) => String(c.carId) === String(selection.carId)
+    );
+    if (!fromCar) {
+      return;
+    }
+    fromCar.members = (fromCar.members || []).filter(
+      (n) => n !== selection.name
+    );
+    cars.forEach((car) => {
+      const first = (car.members || [])[0];
+      car.driver = first || "";
+    });
+    state.carAssignments = cars;
+    renderCarAssignPopup();
+  });
+}
+
 if (elements.visitClearRevisit) {
   elements.visitClearRevisit.addEventListener("click", async () => {
     if (!state.selectedArea || !state.selectedCard) {
@@ -2723,22 +2799,29 @@ elements.carAssignPanel.addEventListener("click", (event) => {
   if (prev) {
     prev.classList.remove("tap-selected");
   }
-  if (!selection.name || !selection.carId) {
+  if (!selection.name) {
     return;
   }
   const name = selection.name;
-  const fromCarId = selection.carId;
+  const fromCarId = selection.carId || "";
   const cars = state.carAssignments || [];
-  const fromCar = cars.find((c) => String(c.carId) === String(fromCarId));
   const toCar = cars.find((c) => String(c.carId) === String(toCarId));
-  if (!fromCar || !toCar) {
+  if (!name || !toCar) {
     return;
   }
-  if (fromCarId === toCarId) {
+  const fromCar = fromCarId
+    ? cars.find((c) => String(c.carId) === String(fromCarId))
+    : null;
+  if (fromCarId && !fromCar) {
+    return;
+  }
+  if (fromCarId && fromCarId === toCarId) {
     const rest = (fromCar.members || []).filter((n) => n !== name);
     fromCar.members = [name].concat(rest);
   } else {
-    fromCar.members = (fromCar.members || []).filter((n) => n !== name);
+    if (fromCar) {
+      fromCar.members = (fromCar.members || []).filter((n) => n !== name);
+    }
     if (!toCar.members) {
       toCar.members = [];
     }
