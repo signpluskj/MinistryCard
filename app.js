@@ -142,8 +142,10 @@ const toISODate = (value) => {
   if (!d) {
     return "";
   }
-  const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-  return z.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 };
 
 const isTrueValue = (value) =>
@@ -172,8 +174,13 @@ const parseVisitDate = (value) => {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value;
   }
-  const text = String(value).trim().replace(/\s+/g, "");
-  const m = text.match(/^(\d{2,4})[./-](\d{1,2})[./-](\d{1,2})$/);
+  const text = String(value).trim();
+  const direct = new Date(text);
+  if (!Number.isNaN(direct.getTime())) {
+    return direct;
+  }
+  const normalized = text.replace(/\s+/g, "");
+  const m = normalized.match(/^(\d{2,4})[./-](\d{1,2})[./-](\d{1,2})$/);
   if (m) {
     const y = m[1].length === 2 ? 2000 + Number(m[1]) : Number(m[1]);
     const mo = Number(m[2]) - 1;
@@ -181,7 +188,9 @@ const parseVisitDate = (value) => {
     const dt = new Date(y, mo, d);
     return Number.isNaN(dt.getTime()) ? null : dt;
   }
-  const parsed = new Date(text.replace(/\./g, "-").replace(/\//g, "-"));
+  const parsed = new Date(
+    normalized.replace(/\./g, "-").replace(/\//g, "-")
+  );
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
@@ -944,32 +953,57 @@ const renderAreas = () => {
       const areaInfo = state.data.areas.find(
         (row) => String(row["구역번호"]) === String(areaId)
       );
-      let range = "";
-      if (areaInfo) {
-        const end = areaInfo["완료날짜"] ? formatDate(areaInfo["완료날짜"]) : "";
-        range = end || "";
-      }
-      const isToday = areaInfo && isSameDay(areaInfo["시작날짜"], today);
+      const startText =
+        areaInfo && areaInfo["시작날짜"]
+          ? formatDate(areaInfo["시작날짜"])
+          : "";
+      const doneText =
+        areaInfo && areaInfo["완료날짜"]
+          ? formatDate(areaInfo["완료날짜"])
+          : "";
       const title = document.createElement("span");
       title.className = "area-title";
       const idSpan = document.createElement("span");
       idSpan.className = "area-id";
       idSpan.textContent = `${areaId}`;
       title.appendChild(idSpan);
+      const isComplete = areaCompletionStatus(grouped[areaId]);
+      const hasStart = Boolean(startText);
+      const hasDone = Boolean(doneText);
+      const inProgress = hasStart && !hasDone;
+      const isToday =
+        areaInfo && areaInfo["시작날짜"]
+          ? isSameDay(areaInfo["시작날짜"], today)
+          : false;
+      const range = isComplete ? doneText || startText : startText || doneText;
       if (range) {
         const dateSpan = document.createElement("span");
         dateSpan.className = "area-date-range";
         dateSpan.textContent = range;
         title.appendChild(dateSpan);
       }
-      const badge = document.createElement("span");
-      badge.className = "status-badge";
-      const isComplete = areaCompletionStatus(grouped[areaId]);
-      badge.textContent = isComplete ? "완료" : "진행중";
-      if (isToday) {
-        item.classList.add("area-today");
+      if (isComplete || inProgress) {
+        const stateChip = document.createElement("span");
+        stateChip.className = "area-state-chip";
+        stateChip.textContent = isComplete ? "완료" : "시작";
+        title.appendChild(stateChip);
       }
-      item.append(title, badge);
+      let badge = null;
+      if (inProgress) {
+        badge = document.createElement("span");
+        badge.className = "status-badge status-badge-progress";
+        badge.textContent = "진행중";
+      }
+      if (isToday && inProgress) {
+        item.classList.add("area-today");
+      } else if (isToday && isComplete) {
+        item.classList.add("area-today-complete");
+      }
+      if (badge) {
+        item.append(title, badge);
+      } else {
+        item.append(title);
+      }
       item.addEventListener("click", (event) => {
         if (
           event.target.closest(".area-cards") ||
