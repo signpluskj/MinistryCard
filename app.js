@@ -4036,8 +4036,17 @@ elements.carAssignAdd.addEventListener("click", () => {
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
-      .register("service-worker.js")
+      .getRegistrations()
+      .then((registrations) => {
+        registrations.forEach((reg) => reg.unregister());
+      })
       .catch(() => {});
+    if (window.caches && caches.keys) {
+      caches
+        .keys()
+        .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+        .catch(() => {});
+    }
   });
 }
 
