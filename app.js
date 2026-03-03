@@ -330,16 +330,6 @@ const renderMyCarInfo = () => {
   }
   box.innerHTML = lines.join("<br>");
   box.classList.remove("hidden");
-  const defaultSize = 15;
-  const minSize = 11;
-  let size = defaultSize;
-  box.style.fontSize = defaultSize + "px";
-  if (box.scrollWidth > box.clientWidth) {
-    while (size > minSize && box.scrollWidth > box.clientWidth) {
-      size -= 1;
-      box.style.fontSize = size + "px";
-    }
-  }
 };
 
 const getEvangelistByName = (name) =>
@@ -1154,7 +1144,15 @@ const groupCardsByArea = () => {
   return areas;
 };
 
-const areaCompletionStatus = (cards) => cards.every((card) => Boolean(card["최근방문일"]));
+const areaCompletionStatus = (cards) =>
+  cards.every(
+    (card) =>
+      Boolean(card["최근방문일"]) ||
+      isTrueValue(card["재방"]) ||
+      isTrueValue(card["연구"]) ||
+      isTrueValue(card["6개월"]) ||
+      isTrueValue(card["방문금지"])
+  );
 
 const getFirstInProgressArea = () => {
   const grouped = groupCardsByArea();
@@ -1242,82 +1240,149 @@ const renderAreas = () => {
         badge.className = "status-badge status-badge-progress";
         badge.textContent = "진행중";
         item.classList.add("area-in-progress");
+        if (withAssignButton && isLeader) {
+          let finishTimer = null;
+          const clearFinishTimer = () => {
+            if (finishTimer) {
+              clearTimeout(finishTimer);
+              finishTimer = null;
+            }
+          };
+          const startFinishTimer = () => {
+            clearFinishTimer();
+            finishTimer = setTimeout(async () => {
+              finishTimer = null;
+              if (
+                !window.confirm(
+                  `구역 ${areaId}의 미방문 카드를 모두 오늘 날짜의 부재로 기록하고 봉사를 완료할까요?`
+                )
+              ) {
+                return;
+              }
+              setLoading(true, "봉사를 완료 처리하는 중...");
+              try {
+                const res = await apiRequest("finishAreaWithoutVisits", {
+                  areaId,
+                  leaderName: state.user ? state.user.name : ""
+                });
+                if (!res.success) {
+                  alert(
+                    res.message ||
+                      "봉사 완료 처리 중 오류가 발생했습니다."
+                  );
+                  return;
+                }
+                await loadData();
+                renderAreas();
+                renderCards();
+                renderAdminPanel();
+                renderMyCarInfo();
+                setStatus(
+                  `구역 ${areaId}의 봉사가 완료 처리되었습니다.`
+                );
+              } finally {
+                setLoading(false);
+              }
+            }, 800);
+          };
+          badge.addEventListener("mousedown", (event) => {
+            if (event.button !== 0) {
+              return;
+            }
+            event.stopPropagation();
+            startFinishTimer();
+          });
+          badge.addEventListener("touchstart", (event) => {
+            event.stopPropagation();
+            startFinishTimer();
+          });
+          ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(
+            (type) => {
+              badge.addEventListener(type, clearFinishTimer);
+            }
+          );
+        }
       }
       if (isToday && inProgress) {
         item.classList.add("area-today");
       } else if (isToday && isComplete) {
         item.classList.add("area-today-complete");
       }
-      if (badge && isLeader) {
-        let pressTimer = null;
-        const clearPressTimer = () => {
-          if (pressTimer) {
-            clearTimeout(pressTimer);
-            pressTimer = null;
-          }
-        };
-        const startPressTimer = () => {
-          clearPressTimer();
-          pressTimer = setTimeout(async () => {
-            pressTimer = null;
-            if (
-              !window.confirm(
-                `구역 ${areaId}의 미방문 카드를 오늘 방문한 것으로 기록하고 봉사를 완료할까요?`
-              )
-            ) {
-              return;
-            }
-            setLoading(true, "구역 봉사 상태를 완료로 변경 중...");
-            try {
-              const res = await apiRequest("finishAreaWithoutVisits", {
-                areaId: String(areaId)
-              });
-              if (!res.success) {
-                alert(
-                  res.message || "구역 봉사 완료 처리에 실패했습니다."
-                );
-                return;
-              }
-              if (res.cards) {
-                state.data.cards = res.cards || state.data.cards;
-              }
-              if (res.areas) {
-                state.data.areas = res.areas || state.data.areas;
-              }
-              renderAreas();
-              renderCards();
-              renderAdminPanel();
-              renderMyCarInfo();
-              setStatus(
-                `구역 ${areaId}의 미방문 카드가 오늘 방문한 것으로 처리되고 봉사가 완료되었습니다.`
-              );
-            } finally {
-              setLoading(false);
-            }
-          }, 800);
-        };
-        badge.addEventListener("mousedown", (event) => {
-          if (event.button !== 0) {
-            return;
-          }
-          startPressTimer();
-        });
-        badge.addEventListener("touchstart", () => {
-          startPressTimer();
-        });
-        ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(
-          (type) => {
-            badge.addEventListener(type, clearPressTimer);
-          }
-        );
-      }
       if (withAssignButton && inProgress && isLeader) {
         const assignBtn = document.createElement("button");
         assignBtn.type = "button";
         assignBtn.textContent = "차량배정";
         assignBtn.className = "assign-cards-btn";
+        let assignPressTimer = null;
+        let assignLongPress = false;
+        const clearAssignPress = () => {
+          if (assignPressTimer) {
+            clearTimeout(assignPressTimer);
+            assignPressTimer = null;
+          }
+        };
+        const startAssignPress = () => {
+          clearAssignPress();
+          assignPressTimer = setTimeout(() => {
+            assignPressTimer = null;
+            assignLongPress = true;
+            const selectedCards = (state.selectedCards || []).filter(
+              (card) =>
+                String(card["구역번호"] || "") === String(areaId) &&
+                String(card["차량"] || "")
+            );
+            if (!selectedCards.length) {
+              alert(
+                "차량 배정을 삭제할 카드를 먼저 선택해 주세요."
+              );
+              return;
+            }
+            if (
+              !window.confirm(
+                `구역 ${areaId}에서 선택된 카드들의 차량 배정을 모두 삭제할까요?`
+              )
+            ) {
+              return;
+            }
+            const allCards = state.data.cards || [];
+            selectedCards.forEach((sel) => {
+              const cn = String(sel["카드번호"] || "");
+              allCards.forEach((card) => {
+                if (
+                  String(card["구역번호"] || "") === String(areaId) &&
+                  String(card["카드번호"] || "") === cn
+                ) {
+                  card["차량"] = "";
+                }
+              });
+            });
+            renderCards();
+            renderCarAssignPopup();
+            setStatus("선택된 카드들의 차량 배정이 삭제되었습니다.");
+          }, 800);
+        };
+        assignBtn.addEventListener("mousedown", (event) => {
+          if (event.button !== 0) {
+            return;
+          }
+          event.stopPropagation();
+          startAssignPress();
+        });
+        assignBtn.addEventListener("touchstart", (event) => {
+          event.stopPropagation();
+          startAssignPress();
+        });
+        ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(
+          (type) => {
+            assignBtn.addEventListener(type, clearAssignPress);
+          }
+        );
         assignBtn.addEventListener("click", (event) => {
           event.stopPropagation();
+          if (assignLongPress) {
+            assignLongPress = false;
+            return;
+          }
           if (!state.selectedArea || state.selectedArea !== areaId) {
             alert("해당 구역의 카드를 먼저 펼쳐서 선택해 주세요.");
             return;
@@ -1334,64 +1399,6 @@ const renderAreas = () => {
           }
           openCarSelectPopup(areaId, selected);
         });
-        let assignPressTimer = null;
-        const clearAssignPressTimer = () => {
-          if (assignPressTimer) {
-            clearTimeout(assignPressTimer);
-            assignPressTimer = null;
-          }
-        };
-        const startAssignPressTimer = () => {
-          clearAssignPressTimer();
-          assignPressTimer = setTimeout(() => {
-            assignPressTimer = null;
-            const selected = (state.selectedCards || []).filter(
-              (card) =>
-                String(card["구역번호"] || "") === String(areaId || "")
-            );
-            if (!selected.length) {
-              alert("차량 배정을 삭제할 카드를 먼저 선택해 주세요.");
-              return;
-            }
-            if (
-              !window.confirm(
-                `구역 ${areaId}에서 선택된 카드들의 차량 배정을 모두 삭제할까요?`
-              )
-            ) {
-              return;
-            }
-            const allCards = state.data.cards || [];
-            selected.forEach((sel) => {
-              const card = allCards.find(
-                (row) =>
-                  String(row["구역번호"] || "") ===
-                    String(sel["구역번호"] || "") &&
-                  String(row["카드번호"] || "") ===
-                    String(sel["카드번호"] || "")
-              );
-              if (card) {
-                card["차량"] = "";
-              }
-            });
-            renderCards();
-            renderCarAssignPopup();
-            setStatus("선택된 카드들의 차량 배정이 삭제되었습니다.");
-          }, 800);
-        };
-        assignBtn.addEventListener("mousedown", (event) => {
-          if (event.button !== 0) {
-            return;
-          }
-          startAssignPressTimer();
-        });
-        assignBtn.addEventListener("touchstart", () => {
-          startAssignPressTimer();
-        });
-        ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(
-          (type) => {
-            assignBtn.addEventListener(type, clearAssignPressTimer);
-          }
-        );
         rightBox.appendChild(assignBtn);
       }
       const showStartButton =
@@ -2656,39 +2663,38 @@ const login = async () => {
     return;
   }
   setLoading(true, "로그인 중입니다...");
-  let res;
   try {
-    res = await apiRequest("login", { name, password });
+    const res = await apiRequest("login", { name, password });
+    if (!res.success) {
+      alert(res.message || "로그인 실패");
+      return;
+    }
+    state.user = { role: res.role, name: res.name };
+    elements.userInfo.textContent = `${state.user.name} (${state.user.role})`;
+    if (state.user.role === "관리자" || state.user.role === "인도자") {
+      elements.menuToggle.style.display = "inline-block";
+    } else {
+      elements.menuToggle.style.display = "none";
+    }
+    elements.loginPanel.classList.add("hidden");
+    elements.dashboard.classList.remove("hidden");
+    await loadData();
+    if (!state.expandedAreaId && state.filterArea === "all") {
+      const inProgressAreaId = getFirstInProgressArea();
+      if (inProgressAreaId) {
+        state.expandedAreaId = inProgressAreaId;
+        state.filterArea = inProgressAreaId;
+        state.selectedArea = inProgressAreaId;
+      }
+    }
+    renderAreas();
+    renderCards();
+    ensureAssignmentState();
+    renderAdminPanel();
+    renderMyCarInfo();
   } finally {
     setLoading(false);
   }
-  if (!res.success) {
-    alert(res.message || "로그인 실패");
-    return;
-  }
-  state.user = { role: res.role, name: res.name };
-  elements.userInfo.textContent = `${state.user.name} (${state.user.role})`;
-  if (state.user.role === "관리자" || state.user.role === "인도자") {
-    elements.menuToggle.style.display = "inline-block";
-  } else {
-    elements.menuToggle.style.display = "none";
-  }
-  elements.loginPanel.classList.add("hidden");
-  elements.dashboard.classList.remove("hidden");
-  await loadData();
-  if (!state.expandedAreaId && state.filterArea === "all") {
-    const inProgressAreaId = getFirstInProgressArea();
-    if (inProgressAreaId) {
-      state.expandedAreaId = inProgressAreaId;
-      state.filterArea = inProgressAreaId;
-      state.selectedArea = inProgressAreaId;
-    }
-  }
-  renderAreas();
-  renderCards();
-  ensureAssignmentState();
-  renderAdminPanel();
-  renderMyCarInfo();
 };
 
 const resetRecentVisits = async () => {
@@ -4089,7 +4095,18 @@ if (elements.carAssignAssignCards) {
       cards: allCards.filter((card) => {
         const area = String(card["구역번호"] || "");
         const carId = String(card["차량"] || "");
-        return area === String(areaId) && !carId;
+        const isRevisit = isTrueValue(card["재방"]);
+        const isStudy = isTrueValue(card["연구"]);
+        const isSixMonths = isTrueValue(card["6개월"]);
+        const isBanned = isTrueValue(card["방문금지"]);
+        return (
+          area === String(areaId) &&
+          !carId &&
+          !isRevisit &&
+          !isStudy &&
+          !isSixMonths &&
+          !isBanned
+        );
       })
     }));
     const totalCards = areaCardsList.reduce(
