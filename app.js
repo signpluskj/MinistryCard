@@ -34,7 +34,9 @@ const state = {
   participantsToday: [],
   carAssignments: [],
   selectedCards: [],
-  currentMenu: "cards"
+  currentMenu: "cards",
+  inviteCampaign: null,
+  inviteStats: null
 };
 
 let carAssignTapSelection = null;
@@ -109,7 +111,14 @@ const elements = {
   adminCardDelete: document.getElementById("admin-card-delete"),
   adminCarEdit: document.getElementById("admin-car-edit"),
   adminEvAdd: document.getElementById("admin-ev-add"),
-  adminEvDelete: document.getElementById("admin-ev-delete")
+  adminEvDelete: document.getElementById("admin-ev-delete"),
+  inviteOverlay: document.getElementById("invite-overlay"),
+  closeInvite: document.getElementById("close-invite"),
+  inviteMeta: document.getElementById("invite-meta"),
+  inviteStart: document.getElementById("invite-start"),
+  inviteStop: document.getElementById("invite-stop"),
+  inviteRefresh: document.getElementById("invite-refresh"),
+  inviteStats: document.getElementById("invite-stats")
 };
 
 const openCarSelectPopup = (areaId, cardNumbers) => {
@@ -276,21 +285,21 @@ const renderMyCarInfo = () => {
   const rows = state.data.assignments || [];
   const name = state.user.name;
   if (!rows.length || !name) {
-    box.textContent = "";
-    box.classList.add("hidden");
+    box.textContent = "오늘 배정된 차량 정보가 없습니다.";
+    box.classList.remove("hidden");
     return;
   }
   const myRow =
     rows.find((row) => String(row["이름"] || "") === String(name)) || null;
   if (!myRow) {
-    box.textContent = "";
-    box.classList.add("hidden");
+    box.textContent = "오늘 배정된 차량 정보가 없습니다.";
+    box.classList.remove("hidden");
     return;
   }
   const carId = String(myRow["차량"] || "");
   if (!carId) {
-    box.textContent = "";
-    box.classList.add("hidden");
+    box.textContent = "오늘 배정된 차량 정보가 없습니다.";
+    box.classList.remove("hidden");
     return;
   }
   const sameCar = rows.filter(
@@ -1146,6 +1155,20 @@ const groupCardsByArea = () => {
   return areas;
 };
 
+const normalizeVisitDateText = (value) => {
+  if (!value) {
+    return "";
+  }
+  const d = toISODate(value);
+  if (!d) {
+    return "";
+  }
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yy}/${mm}/${dd}`;
+};
+
 const areaCompletionStatus = (cards) =>
   cards.every(
     (card) =>
@@ -1216,6 +1239,13 @@ const renderAreas = () => {
         areaInfo && areaInfo["시작날짜"]
           ? isSameDay(areaInfo["시작날짜"], today)
           : false;
+      const inviteInfo = state.inviteCampaign;
+      const isInviteArea =
+        inviteInfo &&
+        inviteInfo.startDate &&
+        inProgress &&
+        startText &&
+        startText >= inviteInfo.startDate;
       const range = isComplete ? doneText || startText : startText || doneText;
       if (range) {
         const dateSpan = document.createElement("span");
@@ -1304,6 +1334,9 @@ const renderAreas = () => {
             }
           );
         }
+      }
+      if (isInviteArea) {
+        item.classList.add("area-invite-campaign");
       }
       if (isToday && inProgress) {
         item.classList.add("area-today");
@@ -1527,8 +1560,6 @@ const renderCards = () => {
     cards = cards.filter(
       (card) => card["만남"] === false || isTrueValue(card["부재"])
     );
-  } else if (state.filterVisit === "invite") {
-    cards = cards.filter((card) => isTrueValue(card["초대장"]));
   } else if (state.filterVisit === "revisit") {
     cards = cards.filter((card) => isTrueValue(card["재방"]));
   } else if (state.filterVisit === "study") {
@@ -1537,6 +1568,45 @@ const renderCards = () => {
     cards = cards.filter((card) => isTrueValue(card["6개월"]));
   } else if (state.filterVisit === "banned") {
     cards = cards.filter((card) => isTrueValue(card["방문금지"]));
+  } else if (state.filterVisit === "campaign-unvisited") {
+    const info = state.inviteCampaign;
+    if (!info || !info.startDate) {
+      cards = [];
+    } else {
+      const start = info.startDate;
+      const end = info.endDate || start;
+      const visits = state.data.visits || [];
+      cards = cards.filter((card) => {
+        const a = String(card["구역번호"] || "");
+        const c = String(card["카드번호"] || "");
+        if (!a || !c) {
+          return false;
+        }
+        const hasVisit = visits.some((row) => {
+          const ra = String(row["구역번호"] || row["areaId"] || "");
+          const rc = String(
+            row["카드번호"] || row["구역카드"] || row["cardNumber"] || ""
+          );
+          if (ra !== a || rc !== c) {
+            return false;
+          }
+          const dText =
+            normalizeVisitDateText(
+              row["방문날짜"] ||
+                row["방문일"] ||
+                row["방문일자"] ||
+                row["날짜"] ||
+                row["방문일시"] ||
+                row["일자"]
+            ) || "";
+          if (!dText) {
+            return false;
+          }
+          return dText >= start && dText <= end;
+        });
+        return !hasVisit;
+      });
+    }
   }
   cards.sort((a, b) => {
     const getUnvisited = (card) => {
@@ -1637,11 +1707,6 @@ const renderCards = () => {
       absent.className = "badge";
       absent.textContent = "부재";
       badgeRow.appendChild(absent);
-    } else if (card["초대장"]) {
-      const invite = document.createElement("span");
-      invite.className = "badge badge-invite";
-      invite.textContent = "초대장";
-      badgeRow.appendChild(invite);
     }
     if (card["재방"]) {
       const rv = document.createElement("span");
@@ -1798,13 +1863,56 @@ const renderCards = () => {
           item.textContent = `${formatDate(getVisitDateValue(row))} · ${workerText} · ${resultText}${memoText ? " · " + memoText : ""}`;
           item.addEventListener("click", (event) => {
             event.stopPropagation();
+            const currentUser = state.user;
+            const isLeader =
+              currentUser &&
+              (currentUser.role === "관리자" || currentUser.role === "인도자");
+            if (!isLeader) {
+              const visitISO = toISODate(getVisitDateValue(row));
+              if (visitISO !== todayISO()) {
+                alert("오늘 날짜의 방문만 수정할 수 있습니다.");
+                return;
+              }
+              const areaIdText = String(card["구역번호"] || "");
+              const areaInfo =
+                (state.data.areas || []).find(
+                  (a) => String(a["구역번호"] || "") === areaIdText
+                ) || null;
+              const hasStart =
+                areaInfo && areaInfo["시작날짜"] ? true : false;
+              const hasDone =
+                areaInfo && areaInfo["완료날짜"] ? true : false;
+              const inProgress = hasStart && !hasDone;
+              if (!inProgress) {
+                alert("봉사가 진행 중인 구역의 방문만 수정할 수 있습니다.");
+                return;
+              }
+              const rows = state.data.assignments || [];
+              const myRow =
+                rows.find(
+                  (r) =>
+                    String(r["이름"] || "") === String(currentUser.name || "")
+                ) || null;
+              const myCarId = myRow ? String(myRow["차량"] || "") : "";
+              const cardCarId = String(card["차량"] || "");
+              if (!myCarId) {
+                alert("오늘 봉사 중인 차량 정보가 없습니다.");
+                return;
+              }
+              if (!cardCarId || myCarId !== cardCarId) {
+                alert("오늘 봉사 중인 카드의 방문만 수정할 수 있습니다.");
+                return;
+              }
+            }
             state.editingVisit = {
               areaId: String(card["구역번호"]),
               cardNumber: String(card["카드번호"]),
               oldVisitDate: String(getVisitDateValue(row)),
               oldWorker: String(workerText),
               oldResult: String(resultText),
-              oldNote: String(memoText)
+              oldNote: String(memoText),
+              sheetName: row["__sheetName"] || row.__sheetName,
+              rowIndex: row["__rowIndex"] || row.__rowIndex
             };
             elements.visitTitle.textContent = `카드 ${card["카드번호"]} 방문 내역 수정`;
             elements.visitDate.value = toISODate(getVisitDateValue(row));
@@ -2600,6 +2708,58 @@ const renderAdminPanel = () => {
   });
 };
 
+const renderInviteCampaignOverlay = () => {
+  if (!elements.inviteOverlay) {
+    return;
+  }
+  const info = state.inviteCampaign;
+  const meta = elements.inviteMeta;
+  const statsBox = elements.inviteStats;
+  if (meta) {
+    if (!info || !info.startDate) {
+      meta.textContent = "초대장 배부가 아직 시작되지 않았습니다.";
+    } else {
+      const statusText = info.active ? "진행중" : "종료됨";
+      const rangeText = info.endDate
+        ? `${info.startDate} ~ ${info.endDate}`
+        : `${info.startDate} ~ 오늘`;
+      const memoText = info.memo ? ` (${info.memo})` : "";
+      meta.textContent = `${statusText} · ${rangeText}${memoText}`;
+    }
+  }
+  if (elements.inviteStart) {
+    elements.inviteStart.disabled = info && info.active;
+  }
+  if (elements.inviteStop) {
+    elements.inviteStop.disabled = !info || !info.active;
+  }
+  if (statsBox) {
+    const summary = state.inviteStats;
+    if (!summary) {
+      statsBox.textContent = "통계를 불러오려면 통계 새로고침을 눌러 주세요.";
+    } else {
+      const parts = [];
+      parts.push(
+        `기간: ${summary.startDate} ~ ${summary.endDate}`
+      );
+      parts.push(
+        `방문한 카드 수: ${summary.totalCards}장, 방문 횟수: ${summary.totalVisits}회`
+      );
+      let html = `<div>${parts.join("<br>")}</div>`;
+      if (summary.byArea && summary.byArea.length) {
+        html += '<table class="invite-stats-table"><thead><tr>';
+        html += "<th>구역</th><th>방문 카드 수</th><th>방문 횟수</th>";
+        html += "</tr></thead><tbody>";
+        summary.byArea.forEach((row) => {
+          html += `<tr><td>${row.areaId}</td><td>${row.cardCount}</td><td>${row.visitCount}</td></tr>`;
+        });
+        html += "</tbody></table>";
+      }
+      statsBox.innerHTML = html;
+    }
+  }
+};
+
 const selectArea = (areaId) => {
   state.selectedArea = areaId;
   state.selectedCard = null;
@@ -2627,8 +2787,6 @@ const selectCard = (card) => {
     ? "재방"
     : card["연구"]
     ? "연구"
-    : card["초대장"]
-    ? "초대장"
     : card["6개월"]
     ? "6개월"
     : card["방문금지"]
@@ -2652,6 +2810,7 @@ const loadData = async () => {
     state.data.visits = data.visits || [];
     state.data.evangelists = data.evangelists || [];
     state.data.assignments = data.assignments || [];
+    state.inviteCampaign = data.inviteCampaign || null;
   } finally {
     setLoading(false);
   }
@@ -2779,14 +2938,15 @@ const saveVisit = async (event) => {
     alert("방문일, 전도인, 결과를 입력해 주세요.");
     return;
   }
-  const oldISO =
-    state.editingVisit && state.editingVisit.oldVisitDate
-      ? toISODate(state.editingVisit.oldVisitDate)
-      : null;
-  const isEdit =
-    Boolean(state.editingVisit) &&
-    visitDate === oldISO &&
-    worker === String(state.editingVisit.oldWorker || "");
+  const isEdit = Boolean(state.editingVisit);
+  const sheetName =
+    state.editingVisit && state.editingVisit.sheetName
+      ? state.editingVisit.sheetName
+      : "";
+  const rowIndex =
+    state.editingVisit && state.editingVisit.rowIndex
+      ? String(state.editingVisit.rowIndex)
+      : "";
   setLoading(true, isEdit ? "방문 기록 수정 중..." : "방문 기록 저장 중...");
   try {
     const res = isEdit
@@ -2795,6 +2955,8 @@ const saveVisit = async (event) => {
           cardNumber,
           oldVisitDate: state.editingVisit.oldVisitDate,
           oldWorker: state.editingVisit.oldWorker,
+          sheetName,
+          rowIndex,
           newVisitDate: visitDate,
           newWorker: worker,
           newResult: result,
@@ -2810,39 +2972,17 @@ const saveVisit = async (event) => {
           note,
           leaderName: state.user.name
         });
-    if (res && res.visit) {
-      if (isEdit) {
-        const oldKey = (row) =>
-          `${row["구역번호"] || ""}__${getVisitCardNumber(row) || ""}__${String(getVisitDateValue(row) || "")}__${String(row["전도인"] || row["방문자"] || "")}`;
-        const newKey = `${String(areaId)}__${String(cardNumber)}__${String(res.visit["방문날짜"] || res.visit["방문일"] || res.visit["방문일자"] || "")}__${String(res.visit["전도인"] || res.visit["방문자"] || "")}`;
-        state.data.visits = (state.data.visits || []).map((row) => (oldKey(row) === `${String(state.editingVisit.areaId)}__${String(state.editingVisit.cardNumber)}__${String(state.editingVisit.oldVisitDate)}__${String(state.editingVisit.oldWorker)}` ? res.visit : row));
-      } else {
-        state.data.visits = [res.visit, ...(state.data.visits || [])];
-      }
+    if (!res || res.success === false) {
+      alert(
+        res && res.message
+          ? res.message
+          : isEdit
+          ? "방문 기록 수정에 실패했습니다."
+          : "방문 기록 저장에 실패했습니다."
+      );
+      return;
     }
-    const updatedCard = state.data.cards.find(
-      (card) =>
-        String(card["구역번호"]) === String(areaId) &&
-        String(card["카드번호"]) === String(cardNumber)
-    );
-    if (updatedCard) {
-      updatedCard["최근방문일"] = res?.cardUpdate?.recentVisitDate || visitDate;
-      updatedCard["만남"] = res?.cardUpdate?.meet ?? (result === "만남");
-      updatedCard["부재"] = res?.cardUpdate?.absent ?? (result === "부재");
-      updatedCard["초대장"] = res?.cardUpdate?.invite ?? (result === "초대장");
-      updatedCard["6개월"] =
-        res?.cardUpdate?.sixMonths ?? (result === "6개월");
-      updatedCard["방문금지"] =
-        res?.cardUpdate?.banned ?? (result === "방문금지");
-      updatedCard["재방"] =
-        res?.cardUpdate?.revisit ?? (result === "재방");
-      updatedCard["연구"] =
-        res?.cardUpdate?.study ?? (result === "연구");
-      state.selectedCard = updatedCard;
-    }
-    if (res.complete) {
-      await loadData();
-    }
+    await loadData();
     renderAreas();
     renderCards();
     renderAdminPanel();
@@ -3544,7 +3684,8 @@ elements.sideMenu.addEventListener("click", (event) => {
     (key === "admin-cards" ||
       key === "admin-ev" ||
       key === "admin-banned" ||
-      key === "car-assign") &&
+      key === "car-assign" ||
+      key === "invite-campaign") &&
     (!state.user ||
       (state.user.role !== "관리자" && state.user.role !== "인도자"))
   ) {
@@ -3582,6 +3723,12 @@ elements.sideMenu.addEventListener("click", (event) => {
     elements.carAssignOverlay.classList.remove("hidden");
     document.body.style.overflow = "hidden";
     renderCarAssignPopup();
+  } else if (key === "invite-campaign") {
+    if (elements.inviteOverlay) {
+      elements.inviteOverlay.classList.remove("hidden");
+      document.body.style.overflow = "hidden";
+      renderInviteCampaignOverlay();
+    }
   }
 });
 
@@ -3596,6 +3743,71 @@ elements.carAssignOverlay.addEventListener("click", (event) => {
     document.body.style.overflow = "";
   }
 });
+
+if (elements.closeInvite && elements.inviteOverlay) {
+  elements.closeInvite.addEventListener("click", () => {
+    elements.inviteOverlay.classList.add("hidden");
+    document.body.style.overflow = "";
+  });
+  elements.inviteOverlay.addEventListener("click", (event) => {
+    if (event.target === elements.inviteOverlay) {
+      elements.inviteOverlay.classList.add("hidden");
+      document.body.style.overflow = "";
+    }
+  });
+}
+
+if (elements.inviteStart) {
+  elements.inviteStart.addEventListener("click", async () => {
+    setLoading(true, "초대장 배부를 시작하는 중...");
+    try {
+      const res = await apiRequest("startInviteCampaign", {});
+      if (!res.success) {
+        alert(res.message || "초대장 배부 시작에 실패했습니다.");
+        return;
+      }
+      state.inviteCampaign = res.info || null;
+      state.inviteStats = null;
+      renderInviteCampaignOverlay();
+    } finally {
+      setLoading(false);
+    }
+  });
+}
+
+if (elements.inviteStop) {
+  elements.inviteStop.addEventListener("click", async () => {
+    setLoading(true, "초대장 배부를 종료하는 중...");
+    try {
+      const res = await apiRequest("stopInviteCampaign", {});
+      if (!res.success) {
+        alert(res.message || "초대장 배부 종료에 실패했습니다.");
+        return;
+      }
+      state.inviteCampaign = res.info || null;
+      renderInviteCampaignOverlay();
+    } finally {
+      setLoading(false);
+    }
+  });
+}
+
+if (elements.inviteRefresh) {
+  elements.inviteRefresh.addEventListener("click", async () => {
+    setLoading(true, "초대장 배부 통계를 불러오는 중...");
+    try {
+      const res = await apiRequest("getInviteCampaignStats", {});
+      if (!res.success) {
+        alert(res.message || "통계를 불러오는 데 실패했습니다.");
+        return;
+      }
+      state.inviteStats = res.summary || null;
+      renderInviteCampaignOverlay();
+    } finally {
+      setLoading(false);
+    }
+  });
+}
 
 if (elements.closeAdmin) {
   elements.closeAdmin.addEventListener("click", () => {
@@ -4109,12 +4321,13 @@ if (elements.carAssignAssignCards) {
           !isSixMonths &&
           !isBanned
         );
-      }).sort((a, b) =>
-        String(a["카드번호"] || "").localeCompare(
-          String(b["카드번호"] || ""),
-          "ko-KR"
+      })
+        .sort((a, b) =>
+          String(a["카드번호"] || "").localeCompare(
+            String(b["카드번호"] || ""),
+            "ko-KR"
+          )
         )
-      )
     }));
     const totalCards = areaCardsList.reduce(
       (sum, item) => sum + item.cards.length,
@@ -4135,16 +4348,32 @@ if (elements.carAssignAssignCards) {
     ) {
       return;
     }
-    for (const { areaId, cards } of areaCardsList) {
-      if (!cards.length) {
-        continue;
-      }
-      let idx = 0;
-      for (const card of cards) {
-        const car = cars[idx % cars.length];
-        idx += 1;
+    const flatCards = [];
+    areaCardsList.forEach(({ areaId, cards }) => {
+      cards.forEach((card) => {
+        flatCards.push(card);
+      });
+    });
+    if (!flatCards.length) {
+      return;
+    }
+    const carsCount = cars.length;
+    const base = Math.floor(totalCards / carsCount);
+    const extra = totalCards % carsCount;
+    const capacities = cars.map((_, index) =>
+      index >= carsCount - extra ? base + 1 : base
+    );
+    let cursor = 0;
+    for (let i = 0; i < carsCount; i++) {
+      const car = cars[i];
+      const limit = capacities[i];
+      for (let n = 0; n < limit && cursor < flatCards.length; n += 1) {
+        const card = flatCards[cursor];
+        cursor += 1;
         const cardNumber = String(card["카드번호"] || "");
-        if (!cardNumber) continue;
+        if (!cardNumber) {
+          continue;
+        }
         card["차량"] = String(car.carId || "");
       }
     }

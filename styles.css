@@ -17,10 +17,24 @@ body {
 .app-header {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  height: 48px;
+  padding: 0 12px;
   background: #1f6feb;
   color: white;
   gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.global-info {
+  position: sticky;
+  top: 48px;
+  z-index: 900;
+  background: #f5f6f8;
+  padding: 8px 16px;
+  margin-top: 0;
+  margin-bottom: 0;
 }
 
 .app-header h1 {
@@ -47,20 +61,21 @@ body {
 
 .user-info {
   font-size: 14px;
+  white-space: nowrap;
 }
 
 .car-info {
   font-size: 15px;
   font-weight: 600;
-  padding: 8px 12px;
-  border: 1px solid #22c55e;
-  background: #dcfce7;
-  border-radius: 10px;
-  margin-bottom: 12px;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
   line-height: 1.45;
+  padding: 8px 12px;
+  border: 1px solid #22c55e;
+  background: #dcfce7;
+  border-radius: 10px;
+  margin-bottom: 0;
 }
 
 .car-assign-body {
@@ -222,7 +237,7 @@ body {
 }
 
 main {
-  padding: 12px 16px;
+  padding: 0 16px 12px;
 }
 
 .panel {
@@ -243,6 +258,17 @@ main {
 .content-panel .panel-header {
   padding-bottom: 4px;
   border-bottom: none;
+}
+
+.panel-subheader {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.panel-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .panel-body {
@@ -278,6 +304,50 @@ main {
 
 .menu-search {
   grid-column: 1 / -1;
+}
+
+.invite-body {
+  padding: 8px 12px 12px;
+}
+
+.invite-meta {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #111827;
+}
+
+.invite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.invite-stats {
+  font-size: 13px;
+  color: #111827;
+}
+
+.invite-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+.invite-stats-table th,
+.invite-stats-table td {
+  border: 1px solid #e5e7eb;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.invite-stats-table th {
+  background: #f9fafb;
+}
+
+.area-invite-campaign {
+  border-color: #22c55e;
+  background: #ecfdf5;
 }
 
 .area-inline-list .list-item {
@@ -372,6 +442,7 @@ button.secondary {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+  scroll-margin-top: 140px;
 }
 
 .list-item.active {
@@ -458,6 +529,7 @@ button.secondary {
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease,
     background-color 0.15s ease;
+  scroll-margin-top: 140px;
 }
 
 .card.active {
@@ -763,10 +835,13 @@ button.secondary {
 }
 
 .status-message {
-  margin-bottom: 12px;
+  margin-bottom: 0;
   color: #1f6feb;
   font-weight: 600;
   text-align: center;
+  background: transparent;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .actions {

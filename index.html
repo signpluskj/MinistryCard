@@ -19,6 +19,10 @@
           <button id="refresh-button" class="icon-button" type="button" title="새로고침">⟳</button>
         </div>
       </header>
+      <div id="global-info" class="global-info">
+        <div id="car-info" class="car-info hidden"></div>
+        <div id="status-message" class="status-message"></div>
+      </div>
       <nav id="side-menu" class="side-menu hidden">
         <div class="side-menu-content">
           <div class="side-menu-header">
@@ -32,6 +36,7 @@
           <ul class="side-menu-list">
             <li><button type="button" data-menu="cards">구역 카드</button></li>
             <li class="admin-only"><button type="button" data-menu="car-assign">차량 배정</button></li>
+            <li class="admin-only"><button type="button" data-menu="invite-campaign">초대장 배부</button></li>
             <li class="menu-separator"><span></span></li>
             <li><button type="button" data-menu="visits">완료 내역</button></li>
             <li class="admin-only"><button type="button" data-menu="admin-cards">구역카드 관리</button></li>
@@ -80,6 +85,23 @@
                 <div id="car-assign-selected" class="car-assign-selected"></div>
                 <div id="car-assign-panel" class="car-assign-panel"></div>
               </div>
+            </div>
+          </div>
+        </div>
+        <div id="invite-overlay" class="area-overlay hidden">
+          <div class="area-overlay-content">
+            <div class="area-overlay-header">
+              <span>초대장 배부</span>
+              <button id="close-invite" class="icon-button" type="button">✕</button>
+            </div>
+            <div class="invite-body">
+              <div id="invite-meta" class="invite-meta"></div>
+              <div class="invite-actions">
+                <button id="invite-start" type="button">배부 시작</button>
+                <button id="invite-stop" type="button">배부 종료</button>
+                <button id="invite-refresh" type="button">통계 새로고침</button>
+              </div>
+              <div id="invite-stats" class="invite-stats"></div>
             </div>
           </div>
         </div>
@@ -168,19 +190,16 @@
               <h2 id="area-title" class="hidden">구역 선택</h2>
             </div>
             <div class="panel-body">
-              <div id="car-info" class="car-info hidden"></div>
               <div id="top-menu" class="top-menu">
                 <label class="menu-field">
-                  <span>구역</span>
                   <select id="filter-area"></select>
                 </label>
                 <label class="menu-field">
-                  <span>방문상태</span>
                   <select id="filter-visit">
                     <option value="all">전체</option>
                     <option value="meet">만남</option>
                     <option value="absent">부재</option>
-                    <option value="invite">초대장</option>
+                    <option value="campaign-unvisited">초대장 미방문</option>
                     <option value="revisit">재방</option>
                     <option value="study">연구</option>
                     <option value="six">6개월</option>
@@ -188,7 +207,6 @@
                   </select>
                 </label>
                 <label class="menu-field menu-search">
-                  <span>주소 검색어</span>
                   <div class="search-row">
                     <input id="search-input" type="text" placeholder="주소 입력" />
                     <button id="search-button" type="button">검색</button>
@@ -196,7 +214,6 @@
                 </label>
               </div>
               <div id="area-list-inline" class="list area-inline-list"></div>
-              <div id="status-message" class="status-message"></div>
               <div id="card-list" class="card-grid"></div>
               <form id="visit-form" class="visit-form hidden">
                 <h3 id="visit-title">방문 기록</h3>
@@ -213,7 +230,6 @@
                   <select id="visit-result">
                     <option value="만남">만남</option>
                     <option value="부재">부재</option>
-                    <option value="초대장">초대장</option>
                     <option value="재방">재방</option>
                     <option value="연구">연구</option>
                     <option value="6개월">6개월</option>
