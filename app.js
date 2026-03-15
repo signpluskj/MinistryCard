@@ -110,10 +110,6 @@ const elements = {
   areaListInline: document.getElementById("area-list-inline"),
   loadingIndicator: document.getElementById("loading-indicator"),
   loadingText: document.getElementById("loading-text"),
-  adminCardAdd: document.getElementById("admin-card-add"),
-  adminCardDelete: document.getElementById("admin-card-delete"),
-  adminCardDeleted: document.getElementById("admin-card-deleted"),
-  adminCarEdit: document.getElementById("admin-car-edit"),
   adminEvAdd: document.getElementById("admin-ev-add"),
   adminEvDelete: document.getElementById("admin-ev-delete"),
   inviteOverlay: document.getElementById("invite-overlay"),
@@ -1318,13 +1314,15 @@ const renderAreas = () => {
     state.user &&
     (state.user.role === "관리자" || state.user.role === "인도자");
   const areasRows = state.data.areas || [];
-  let latestCompleteDate = null;
+  let latestServiceDate = null;
   let hasTodayInProgress = false;
   areasRows.forEach((row) => {
-    const d = row["완료날짜"] ? parseVisitDate(row["완료날짜"]) : null;
+    const startD = row["시작날짜"] ? parseVisitDate(row["시작날짜"]) : null;
+    const endD = row["완료날짜"] ? parseVisitDate(row["완료날짜"]) : null;
+    const d = endD || startD;
     if (d && !Number.isNaN(d.getTime())) {
-      if (!latestCompleteDate || d.getTime() > latestCompleteDate.getTime()) {
-        latestCompleteDate = d;
+      if (!latestServiceDate || d.getTime() > latestServiceDate.getTime()) {
+        latestServiceDate = d;
       }
     }
      if (
@@ -1335,7 +1333,21 @@ const renderAreas = () => {
        hasTodayInProgress = true;
      }
   });
-  const areaIds = Object.keys(grouped);
+  const areaIds = Object.keys(grouped).sort((a, b) => {
+    const sheetAreaOrder = (state.data.areas || []).map(row => String(row["구역번호"]));
+    const idxA = sheetAreaOrder.indexOf(String(a));
+    const idxB = sheetAreaOrder.indexOf(String(b));
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    
+    const na = Number(a);
+    const nb = Number(b);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) {
+      return na - nb;
+    }
+    return String(a).localeCompare(String(b), "ko-KR");
+  });
   areaIds.forEach((areaId) => {
     const createItem = (withAssignButton) => {
       const item = document.createElement("div");
@@ -1508,18 +1520,21 @@ const renderAreas = () => {
       if (isInviteArea) {
         item.classList.add("area-invite-campaign");
       }
-      if (isToday && inProgress) {
-        item.classList.add("area-today");
-      } else if (isToday && isComplete) {
-        item.classList.add("area-today-complete");
-      } else if (
-        isComplete &&
-        latestCompleteDate &&
-        areaCompleteDate &&
-        areaCompleteDate.getTime() === latestCompleteDate.getTime() &&
-        !hasTodayInProgress
-      ) {
-        item.classList.add("area-last-complete");
+      const activityDate = areaCompleteDate || (startText ? parseVisitDate(startText) : null);
+      const isLastService = activityDate && latestServiceDate && activityDate.getTime() === latestServiceDate.getTime();
+
+      if (isToday) {
+        if (inProgress) {
+          item.classList.add("area-today");
+        } else if (isComplete) {
+          item.classList.add("area-today-complete");
+        }
+      } else if (isLastService) {
+        if (isComplete) {
+          item.classList.add("area-last-complete");
+        } else if (inProgress) {
+          item.classList.add("area-last-in-progress");
+        }
       }
       if (
         withAssignButton &&
@@ -1867,8 +1882,7 @@ const renderCards = () => {
     }
     if (unvisited) {
       cardEl.classList.add("card-unvisited");
-    }
-    const title = document.createElement("div");
+    }    const title = document.createElement("div");
     title.className = "card-header";
     const mainTitle = document.createElement("strong");
   const cardNumText = String(card["카드번호"] || "");
@@ -1942,11 +1956,13 @@ const renderCards = () => {
     }
     const nav = document.createElement("div");
     nav.className = "nav-links";
-    const searchText = card["주소"] || "";
-    const encoded = encodeURIComponent(searchText || card["카드번호"] || "");
+    const addressText = String(card["주소"] || "").trim();
+    const query = addressText || String(card["카드번호"] || "").trim();
+    const encoded = encodeURIComponent(query);
     const kakao = document.createElement("a");
     kakao.className = "nav-kakao";
-    kakao.href = `https://map.kakao.com/link/search/${encoded}`;
+    // 카카오맵 앱 딥링크: 검색어를 바로 전달
+    kakao.href = `kakaomap://search?q=${encoded}`;
     kakao.target = "_blank";
     kakao.rel = "noopener noreferrer";
     kakao.textContent = "카카오";
@@ -2356,6 +2372,13 @@ const renderCompletionOverlayList = () => {
     byArea[areaId].push(row);
   });
   const areaIds = Object.keys(byArea).sort((a, b) => {
+    const sheetAreaOrder = (state.data.areas || []).map(row => String(row["구역번호"]));
+    const idxA = sheetAreaOrder.indexOf(String(a));
+    const idxB = sheetAreaOrder.indexOf(String(b));
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    
     const na = Number(a);
     const nb = Number(b);
     if (!Number.isNaN(na) && !Number.isNaN(nb)) {
@@ -2489,7 +2512,22 @@ const renderAdminPanel = () => {
   }
   elements.adminPanel.classList.remove("hidden");
   const byAreaCards = groupCardsByArea();
+  // 구글 시트(state.data.areas)의 구역번호 순서대로 정렬 (구역번호 이름순 포함)
+  const areas = state.data.areas || [];
   const areaIds = Object.keys(byAreaCards).sort((a, b) => {
+    const findSheetIndex = (id) => {
+      return areas.findIndex(row => {
+        const raw = String(row["구역번호"] || "").trim();
+        // 구역번호가 "101"이거나 "101 (가남읍)" 형태일 수 있음
+        return raw === String(id) || raw.startsWith(String(id) + " ");
+      });
+    };
+    const idxA = findSheetIndex(a);
+    const idxB = findSheetIndex(b);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    
     const na = Number(a);
     const nb = Number(b);
     if (!Number.isNaN(na) && !Number.isNaN(nb)) {
@@ -2501,7 +2539,10 @@ const renderAdminPanel = () => {
   const selectedAreaId = state.adminCardsAreaId;
   const selectedCardKey = state.adminCardsSelectedKey;
   areaIds.forEach((areaId) => {
-    const cards = byAreaCards[areaId] || [];
+    // 해당 구역의 카드들을 카드번호 순으로 정렬
+    const cards = (byAreaCards[areaId] || []).sort((ca, cb) => 
+      compareCardNumbers(ca["카드번호"], cb["카드번호"])
+    );
     const item = document.createElement("div");
     item.className = "list-item";
     item.dataset.areaId = areaId;
@@ -2512,122 +2553,227 @@ const renderAdminPanel = () => {
     header.textContent = `${areaId} · 카드 ${cards.length}장`;
     item.appendChild(header);
     const cardsBox = document.createElement("div");
+    cardsBox.className = "area-cards";
     const expanded = selectedAreaId === areaId;
     if (!expanded) {
       cardsBox.style.display = "none";
     }
     if (expanded) {
-      const cardTable = document.createElement("table");
-      cardTable.className = "admin-table admin-card-table";
-      cardTable.dataset.areaId = areaId;
-      const cardThead = document.createElement("thead");
-      const cardHeadRow = document.createElement("tr");
-      ["카드번호", "주소", "상세주소", "비고", "작업"].forEach(
-        (text) => {
-          const th = document.createElement("th");
-          th.textContent = text;
-          cardHeadRow.appendChild(th);
-        }
-      );
-      cardThead.appendChild(cardHeadRow);
-      const cardTbody = document.createElement("tbody");
+      const box = document.createElement("div");
+      box.className = "deleted-card-box";
       cards.forEach((card) => {
-        const tr = document.createElement("tr");
+        const cardWrapper = document.createElement("div");
+        cardWrapper.className = "card admin-card-row";
+        cardWrapper.dataset.areaId = areaId;
         const cardNo = String(card["카드번호"] || "");
-        tr.dataset.areaId = areaId;
-        tr.dataset.cardNumber = cardNo;
-        const noTd = document.createElement("td");
-        const noInput = document.createElement("input");
-        noInput.type = "text";
-        noInput.value = cardNo;
-        noInput.readOnly = true;
-        noTd.appendChild(noInput);
-        const addrTd = document.createElement("td");
-        const addrInput = document.createElement("input");
-        addrInput.type = "text";
-        addrInput.value = String(card["주소"] || "");
-        addrInput.dataset.field = "address";
-        addrTd.appendChild(addrInput);
-        const detailTd = document.createElement("td");
-        const detailInput = document.createElement("input");
-        detailInput.type = "text";
-        detailInput.value = String(card["상세주소"] || "");
-        detailInput.dataset.field = "detailAddress";
-        detailTd.appendChild(detailInput);
-        const memoTd = document.createElement("td");
-        const memoInput = document.createElement("input");
-        memoInput.type = "text";
-        memoInput.value = String(card["비고"] || "");
-        memoInput.dataset.field = "memo";
-        memoTd.appendChild(memoInput);
-        const actionTd = document.createElement("td");
-        actionTd.className = "admin-actions-cell";
+        cardWrapper.dataset.cardNumber = cardNo;
+
+        const headerRow = document.createElement("div");
+        headerRow.className = "card-header";
+        const mainTitle = document.createElement("strong");
+        const townText = getCardTownLabel(card);
+        mainTitle.textContent = townText
+          ? `${cardNo} (${townText})`
+          : cardNo;
+        const badgeRow = document.createElement("div");
+        badgeRow.className = "card-badges";
         const saveBtn = document.createElement("button");
         saveBtn.type = "button";
         saveBtn.textContent = "저장";
+        saveBtn.className = "status-badge";
         saveBtn.dataset.cardAction = "save-card";
         const deleteBtn = document.createElement("button");
         deleteBtn.type = "button";
         deleteBtn.textContent = "삭제";
+        deleteBtn.className = "status-badge";
         deleteBtn.dataset.cardAction = "delete-card";
-        actionTd.appendChild(saveBtn);
-        actionTd.appendChild(deleteBtn);
-      const hasFlags =
-        isTrueValue(card["재방"]) ||
-        isTrueValue(card["연구"]) ||
-        isTrueValue(card["6개월"]) ||
-        isTrueValue(card["방문금지"]);
-      if (hasFlags) {
-        const clearBtn = document.createElement("button");
-        clearBtn.type = "button";
-        clearBtn.textContent = "해제";
-        clearBtn.dataset.cardAction = "clear-flags";
-        actionTd.appendChild(clearBtn);
-      }
-        tr.append(noTd, addrTd, detailTd, memoTd, actionTd);
-        cardTbody.appendChild(tr);
+        badgeRow.appendChild(saveBtn);
+        badgeRow.appendChild(deleteBtn);
+        headerRow.append(mainTitle, badgeRow);
+
+        // 체크박스 그룹 추가 (6개월, 방문금지, 재방, 연구)
+        const checkGroup = document.createElement("div");
+        checkGroup.className = "card-check-group";
+        const flags = [
+          { key: "6개월", field: "sixMonths" },
+          { key: "방문금지", field: "banned" },
+          { key: "재방", field: "revisit" },
+          { key: "연구", field: "study" }
+        ];
+        flags.forEach((f) => {
+          const label = document.createElement("label");
+          label.className = "card-check-item";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.dataset.field = f.field;
+          cb.checked = isTrueValue(card[f.key]);
+          label.append(cb, f.key);
+          checkGroup.appendChild(label);
+        });
+
+        const areaLine = document.createElement("div");
+        areaLine.className = "card-line";
+        const areaLabel = document.createElement("span");
+        areaLabel.textContent = "구역번호: ";
+        const areaValue = document.createElement("span");
+        areaValue.textContent = String(card["구역번호"] || areaId);
+        areaLine.append(areaLabel, areaValue);
+
+        const townLine = document.createElement("div");
+        townLine.className = "card-line";
+        const townLabel = document.createElement("span");
+        townLabel.textContent = "읍면동: ";
+        const townInput = document.createElement("input");
+        townInput.type = "text";
+        townInput.value = String(card["읍면동"] || "");
+        townInput.dataset.field = "town";
+        townLine.append(townLabel, townInput);
+
+        const addrLine = document.createElement("div");
+        addrLine.className = "card-line";
+        const addrLabel = document.createElement("span");
+        addrLabel.textContent = "주소: ";
+        const addrInput = document.createElement("input");
+        addrInput.type = "text";
+        addrInput.value = String(card["주소"] || "");
+        addrInput.dataset.field = "address";
+        addrLine.append(addrLabel, addrInput);
+
+        const detailLine = document.createElement("div");
+        detailLine.className = "card-line";
+        const detailLabel = document.createElement("span");
+        detailLabel.textContent = "상세주소: ";
+        const detailInput = document.createElement("input");
+        detailInput.type = "text";
+        detailInput.value = String(card["상세주소"] || "");
+        detailInput.dataset.field = "detailAddress";
+        detailLine.append(detailLabel, detailInput);
+
+        const infoLine = document.createElement("div");
+        infoLine.className = "card-line";
+        const infoLabel = document.createElement("span");
+        infoLabel.textContent = "정보: ";
+        const infoInput = document.createElement("input");
+        infoInput.type = "text";
+        infoInput.value = String(card["정보"] || card["비고"] || "");
+        infoInput.dataset.field = "memo";
+        infoLine.append(infoLabel, infoInput);
+
+        cardWrapper.append(
+          headerRow,
+          areaLine,
+          townLine,
+          addrLine,
+          detailLine,
+          infoLine,
+          checkGroup
+        );
+        box.appendChild(cardWrapper);
       });
-      const newTr = document.createElement("tr");
-      newTr.dataset.new = "true";
-      newTr.dataset.areaId = areaId;
-      const newNoTd = document.createElement("td");
-      const newNoInput = document.createElement("input");
-      newNoInput.type = "text";
-      newNoInput.placeholder = "새 카드번호";
-      newNoInput.dataset.field = "cardNumber";
-      newNoTd.appendChild(newNoInput);
-      const newAddrTd = document.createElement("td");
+
+      const newCard = document.createElement("div");
+      newCard.className = "card admin-card-row";
+      newCard.dataset.new = "true";
+      newCard.dataset.areaId = areaId;
+      const newHeader = document.createElement("div");
+      newHeader.className = "card-header";
+      const newTitle = document.createElement("strong");
+      newTitle.textContent = "새 카드 추가";
+      const newBadgeRow = document.createElement("div");
+      newBadgeRow.className = "card-badges";
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.textContent = "추가";
+      addBtn.className = "status-badge";
+      addBtn.dataset.cardAction = "create-card";
+      newBadgeRow.appendChild(addBtn);
+      newHeader.append(newTitle, newBadgeRow);
+
+      const newAreaLine = document.createElement("div");
+      newAreaLine.className = "card-line";
+      const newAreaLabel = document.createElement("span");
+      newAreaLabel.textContent = "구역번호: ";
+      const newAreaValue = document.createElement("span");
+      newAreaValue.textContent = areaId;
+      newAreaLine.append(newAreaLabel, newAreaValue);
+
+      const newCardNoLine = document.createElement("div");
+      newCardNoLine.className = "card-line";
+      const newCardNoLabel = document.createElement("span");
+      newCardNoLabel.textContent = "카드번호: ";
+      const newCardNoInput = document.createElement("input");
+      newCardNoInput.type = "text";
+      newCardNoInput.placeholder = "새 카드번호";
+      newCardNoInput.dataset.field = "cardNumber";
+      newCardNoLine.append(newCardNoLabel, newCardNoInput);
+
+      const newTownLine = document.createElement("div");
+      newTownLine.className = "card-line";
+      const newTownLabel = document.createElement("span");
+      newTownLabel.textContent = "읍면동: ";
+      const newTownInput = document.createElement("input");
+      newTownInput.type = "text";
+      newTownInput.dataset.field = "town";
+      newTownLine.append(newTownLabel, newTownInput);
+
+      const newAddrLine = document.createElement("div");
+      newAddrLine.className = "card-line";
+      const newAddrLabel = document.createElement("span");
+      newAddrLabel.textContent = "주소: ";
       const newAddrInput = document.createElement("input");
       newAddrInput.type = "text";
       newAddrInput.dataset.field = "address";
-      newAddrTd.appendChild(newAddrInput);
-      const newDetailTd = document.createElement("td");
+      newAddrLine.append(newAddrLabel, newAddrInput);
+
+      const newDetailLine = document.createElement("div");
+      newDetailLine.className = "card-line";
+      const newDetailLabel = document.createElement("span");
+      newDetailLabel.textContent = "상세주소: ";
       const newDetailInput = document.createElement("input");
       newDetailInput.type = "text";
       newDetailInput.dataset.field = "detailAddress";
-      newDetailTd.appendChild(newDetailInput);
-      const newMemoTd = document.createElement("td");
-      const newMemoInput = document.createElement("input");
-      newMemoInput.type = "text";
-      newMemoInput.dataset.field = "memo";
-      newMemoTd.appendChild(newMemoInput);
-      const newActionTd = document.createElement("td");
-      newActionTd.className = "admin-actions-cell";
-      const newSaveBtn = document.createElement("button");
-      newSaveBtn.type = "button";
-      newSaveBtn.textContent = "추가";
-      newSaveBtn.dataset.cardAction = "create-card";
-      newActionTd.appendChild(newSaveBtn);
-      newTr.append(
-        newNoTd,
-        newAddrTd,
-        newDetailTd,
-        newMemoTd,
-        newActionTd
+      newDetailLine.append(newDetailLabel, newDetailInput);
+
+      const newInfoLine = document.createElement("div");
+      newInfoLine.className = "card-line";
+      const newInfoLabel = document.createElement("span");
+      newInfoLabel.textContent = "정보: ";
+      const newInfoInput = document.createElement("input");
+      newInfoInput.type = "text";
+      newInfoInput.dataset.field = "memo";
+      newInfoLine.append(newInfoLabel, newInfoInput);
+
+      // 새 카드용 체크박스 그룹
+      const newCheckGroup = document.createElement("div");
+      newCheckGroup.className = "card-check-group";
+      [
+        { key: "6개월", field: "sixMonths" },
+        { key: "방문금지", field: "banned" },
+        { key: "재방", field: "revisit" },
+        { key: "연구", field: "study" }
+      ].forEach((f) => {
+        const label = document.createElement("label");
+        label.className = "card-check-item";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.dataset.field = f.field;
+        label.append(cb, f.key);
+        newCheckGroup.appendChild(label);
+      });
+
+      newCard.append(
+        newHeader,
+        newAreaLine,
+        newCardNoLine,
+        newTownLine,
+        newAddrLine,
+        newDetailLine,
+        newInfoLine,
+        newCheckGroup
       );
-      cardTbody.appendChild(newTr);
-      cardTable.append(cardThead, cardTbody);
-      cardsBox.appendChild(cardTable);
+
+      box.appendChild(newCard);
+      cardsBox.appendChild(box);
     }
     item.appendChild(cardsBox);
     header.addEventListener("click", () => {
@@ -2860,9 +3006,15 @@ const renderAdminPanel = () => {
     }
     deletedByArea[areaId].push(row);
   });
-  const deletedAreaIds = Object.keys(deletedByArea).sort((a, b) =>
-    String(a).localeCompare(String(b), "ko-KR")
-  );
+  const deletedAreaIds = Object.keys(deletedByArea).sort((a, b) => {
+    const sheetAreaOrder = (state.data.areas || []).map(row => String(row["구역번호"]));
+    const idxA = sheetAreaOrder.indexOf(String(a));
+    const idxB = sheetAreaOrder.indexOf(String(b));
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return String(a).localeCompare(String(b), "ko-KR");
+  });
   elements.deletedCardList.innerHTML = "";
   if (!deletedAreaIds.length) {
     const empty = document.createElement("div");
@@ -3011,6 +3163,13 @@ const renderAdminPanel = () => {
     });
   }
   const bannedAreaIds = Object.keys(bannedByArea).sort((a, b) => {
+    const sheetAreaOrder = (state.data.areas || []).map(row => String(row["구역번호"]));
+    const idxA = sheetAreaOrder.indexOf(String(a));
+    const idxB = sheetAreaOrder.indexOf(String(b));
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    
     const na = Number(a);
     const nb = Number(b);
     if (!Number.isNaN(na) && !Number.isNaN(nb)) {
@@ -4350,91 +4509,6 @@ if (elements.completionOverlay) {
   });
 }
 
-if (elements.adminCardAdd) {
-  elements.adminCardAdd.addEventListener("click", async () => {
-    const areaId = window.prompt("구역번호를 입력해 주세요.");
-    if (!areaId) {
-      return;
-    }
-    const cardNumber = window.prompt("카드번호를 입력해 주세요.");
-    if (!cardNumber) {
-      return;
-    }
-    const address = window.prompt("주소를 입력해 주세요. (없으면 빈칸)");
-    const detailAddress = window.prompt("상세주소를 입력해 주세요. (없으면 빈칸)");
-    const memo = window.prompt("비고를 입력해 주세요. (없으면 빈칸)");
-    try {
-      const res = await apiRequest("upsertCard", {
-        areaId,
-        cardNumber,
-        address: address || "",
-        detailAddress: detailAddress || "",
-        memo: memo || ""
-      });
-      if (!res.success) {
-        alert(res.message || "구역카드 저장에 실패했습니다.");
-        return;
-      }
-      state.data.cards = res.cards || [];
-      renderAreas();
-      renderCards();
-      renderAdminPanel();
-      setStatus("구역카드가 저장되었습니다.");
-    } catch (e) {
-      alert("구역카드 저장 중 오류가 발생했습니다.");
-    }
-  });
-}
-
-if (elements.adminCardDelete) {
-  elements.adminCardDelete.addEventListener("click", async () => {
-    const areaId = window.prompt("삭제할 구역번호를 입력해 주세요.");
-    if (!areaId) {
-      return;
-    }
-    const cardNumber = window.prompt("삭제할 카드번호를 입력해 주세요.");
-    if (!cardNumber) {
-      return;
-    }
-    if (!window.confirm(`${areaId}, 카드 ${cardNumber}를 삭제하시겠습니까?`)) {
-      return;
-    }
-    try {
-      const res = await apiRequest("deleteCard", {
-        areaId,
-        cardNumber
-      });
-      if (!res.success) {
-        alert(res.message || "구역카드 삭제에 실패했습니다.");
-        return;
-      }
-      await loadData();
-      renderAreas();
-      renderCards();
-      renderAdminPanel();
-      setStatus("구역카드가 삭제되었습니다.");
-    } catch (e) {
-      alert("구역카드 삭제 중 오류가 발생했습니다.");
-    }
-  });
-}
-
-if (elements.adminCardDeleted) {
-  elements.adminCardDeleted.addEventListener("click", async () => {
-    try {
-      await loadData();
-      state.currentMenu = "admin-deleted";
-      if (elements.adminOverlay) {
-        elements.adminOverlay.classList.remove("hidden");
-        document.body.style.overflow = "hidden";
-      }
-      renderAdminPanel();
-    } catch (e) {
-      alert("삭제 카드 목록을 불러오는 중 오류가 발생했습니다.");
-    }
-  });
-}
-
 if (elements.adminEvAdd) {
   elements.adminEvAdd.addEventListener("click", async () => {
     const name = window.prompt("전도인 이름을 입력해 주세요.");
@@ -4617,7 +4691,8 @@ if (elements.completionList) {
       return;
     }
     const action = button.dataset.cardAction;
-    const rowEl = button.closest("tr");
+    const rowEl =
+      button.closest("tr") || button.closest(".admin-card-row");
     if (!rowEl) {
       return;
     }
@@ -4642,13 +4717,24 @@ if (elements.completionList) {
       const addressInput = getInput("address");
       const detailInput = getInput("detailAddress");
       const memoInput = getInput("memo");
+      const townInput = getInput("town");
       const payload = {
         areaId,
         cardNumber,
+        isNew: true,
+        town: townInput ? townInput.value : "",
         address: addressInput ? addressInput.value : "",
         detailAddress: detailInput ? detailInput.value : "",
-        memo: memoInput ? memoInput.value : ""
+        memo: memoInput ? memoInput.value : "",
+        sixMonths: getInput("sixMonths")?.checked || false,
+        banned: getInput("banned")?.checked || false,
+        revisit: getInput("revisit")?.checked || false,
+        study: getInput("study")?.checked || false
       };
+      const originalText = button.textContent;
+      button.textContent = "저장 중...";
+      button.disabled = true;
+      setLoading(true, "구역카드를 추가하는 중...");
       try {
         const res = await apiRequest("upsertCard", payload);
         if (!res.success) {
@@ -4662,6 +4748,10 @@ if (elements.completionList) {
         setStatus("구역카드가 추가되었습니다.");
       } catch (e) {
         alert("구역카드 저장 중 오류가 발생했습니다.");
+      } finally {
+        button.textContent = originalText;
+        button.disabled = false;
+        setLoading(false);
       }
       return;
     }
@@ -4674,13 +4764,23 @@ if (elements.completionList) {
       const addressInput = getInput("address");
       const detailInput = getInput("detailAddress");
       const memoInput = getInput("memo");
+      const townInput = getInput("town");
       const payload = {
         areaId,
         cardNumber: baseCardNumber,
+        town: townInput ? townInput.value : "",
         address: addressInput ? addressInput.value : "",
         detailAddress: detailInput ? detailInput.value : "",
-        memo: memoInput ? memoInput.value : ""
+        memo: memoInput ? memoInput.value : "",
+        sixMonths: getInput("sixMonths")?.checked || false,
+        banned: getInput("banned")?.checked || false,
+        revisit: getInput("revisit")?.checked || false,
+        study: getInput("study")?.checked || false
       };
+      const originalText = button.textContent;
+      button.textContent = "저장 중...";
+      button.disabled = true;
+      setLoading(true, "구역카드를 저장하는 중...");
       try {
         const res = await apiRequest("upsertCard", payload);
         if (!res.success) {
@@ -4694,6 +4794,10 @@ if (elements.completionList) {
         setStatus("구역카드가 저장되었습니다.");
       } catch (e) {
         alert("구역카드 저장 중 오류가 발생했습니다.");
+      } finally {
+        button.textContent = originalText;
+        button.disabled = false;
+        setLoading(false);
       }
     } else if (action === "delete-card") {
       if (
@@ -4703,6 +4807,10 @@ if (elements.completionList) {
       ) {
         return;
       }
+      const originalText = button.textContent;
+      button.textContent = "삭제 중...";
+      button.disabled = true;
+      setLoading(true, "구역카드를 삭제하는 중...");
       try {
         const res = await apiRequest("deleteCard", {
           areaId,
@@ -4719,6 +4827,10 @@ if (elements.completionList) {
         setStatus("구역카드가 삭제되었습니다.");
       } catch (e) {
         alert("구역카드 삭제 중 오류가 발생했습니다.");
+      } finally {
+        button.textContent = originalText;
+        button.disabled = false;
+        setLoading(false);
       }
     } else if (action === "clear-flags") {
       const cards = state.data.cards || [];
