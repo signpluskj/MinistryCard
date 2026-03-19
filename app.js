@@ -3428,6 +3428,20 @@ const loadData = async () => {
   }
 };
 
+const updateMenuVisibility = () => {
+  if (!state.user) return;
+  const isAdmin = state.user.role === "관리자";
+  const isLeader = state.user.role === "인도자";
+  
+  document.querySelectorAll(".admin-only").forEach(el => {
+    el.classList.toggle("hidden", !isAdmin);
+  });
+  
+  document.querySelectorAll(".leader-only").forEach(el => {
+    el.classList.toggle("hidden", !isAdmin && !isLeader);
+  });
+};
+
 const enterDashboard = async (user) => {
   state.user = user;
   elements.userInfo.textContent = `${state.user.name} (${state.user.role})`;
@@ -3436,6 +3450,7 @@ const enterDashboard = async (user) => {
   } else {
     elements.menuToggle.style.display = "none";
   }
+  updateMenuVisibility();
   elements.loginPanel.classList.add("hidden");
   elements.dashboard.classList.remove("hidden");
   await loadData();
@@ -4346,19 +4361,27 @@ elements.sideMenu.addEventListener("click", (event) => {
   if (!key) {
     return;
   }
+  
+  const isAdmin = state.user && state.user.role === "관리자";
+  const isLeader = state.user && state.user.role === "인도자";
+  
   if (
     (key === "admin-cards" ||
       key === "admin-ev" ||
       key === "admin-banned" ||
       key === "admin-deleted" ||
-      key === "car-assign" ||
       key === "invite-campaign") &&
-    (!state.user ||
-      (state.user.role !== "관리자" && state.user.role !== "인도자"))
+    !isAdmin
   ) {
+    alert("관리자만 사용할 수 있습니다.");
+    return;
+  }
+  
+  if ((key === "car-assign" || key === "visits") && !isAdmin && !isLeader) {
     alert("관리자 또는 인도자만 사용할 수 있습니다.");
     return;
   }
+  
   state.currentMenu = key;
   elements.sideMenu.classList.add("hidden");
   if (key === "cards") {
