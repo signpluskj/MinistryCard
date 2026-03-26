@@ -2579,6 +2579,7 @@ const renderAreas = () => {
   areaIds.forEach((areaId) => {
     const createItem = (withAssignButton) => {
       const item = document.createElement("div");
+      let justSwiped = false;
       item.className = "list-item";
       item.dataset.areaId = areaId;
       if (state.selectedArea === areaId) {
@@ -2660,92 +2661,6 @@ const renderAreas = () => {
         badge.className = "status-badge status-badge-progress";
         badge.textContent = "진행중";
         item.classList.add("area-in-progress");
-        if (withAssignButton && isLeader) {
-          let badgeSwipeStartX = null;
-          let badgeSwipeStartY = null;
-          let isBadgeSwiping = false;
-
-          badge.addEventListener("mousedown", (event) => {
-            if (event.button !== 0) {
-              return;
-            }
-            event.stopPropagation();
-            badgeSwipeStartX = event.clientX;
-            badgeSwipeStartY = event.clientY;
-            isBadgeSwiping = false;
-          });
-          badge.addEventListener("touchstart", (event) => {
-            event.stopPropagation();
-            badgeSwipeStartX = event.touches[0].clientX;
-            badgeSwipeStartY = event.touches[0].clientY;
-            isBadgeSwiping = false;
-          });
-          badge.addEventListener("mousemove", (event) => {
-            if (badgeSwipeStartX === null) return;
-            const diffX = event.clientX - badgeSwipeStartX;
-            const diffY = event.clientY - badgeSwipeStartY;
-            if (Math.abs(diffX) > 10 && Math.abs(diffX) > Math.abs(diffY)) {
-              isBadgeSwiping = true;
-            }
-          });
-          badge.addEventListener("touchmove", (event) => {
-            if (badgeSwipeStartX === null) return;
-            const diffX = event.touches[0].clientX - badgeSwipeStartX;
-            const diffY = event.touches[0].clientY - badgeSwipeStartY;
-            if (Math.abs(diffX) > 10 && Math.abs(diffX) > Math.abs(diffY)) {
-              isBadgeSwiping = true;
-            }
-          });
-          badge.addEventListener("mouseup", async (event) => {
-            if (badgeSwipeStartX === null) return;
-            const diffX = event.clientX - badgeSwipeStartX;
-            const isSwipe = isBadgeSwiping && Math.abs(diffX) > 50;
-            badgeSwipeStartX = null;
-            badgeSwipeStartY = null;
-            isBadgeSwiping = false;
-            if (isSwipe) {
-              if (window.confirm(`구역 ${areaId}의 봉사 시작을 취소할까요?`)) {
-                await cancelServiceForArea(areaId);
-              }
-            }
-          });
-          badge.addEventListener("touchend", async (event) => {
-            if (badgeSwipeStartX === null) return;
-            const diffX = event.changedTouches[0].clientX - badgeSwipeStartX;
-            const isSwipe = isBadgeSwiping && Math.abs(diffX) > 50;
-            badgeSwipeStartX = null;
-            badgeSwipeStartY = null;
-            isBadgeSwiping = false;
-            if (isSwipe) {
-              if (window.confirm(`구역 ${areaId}의 봉사 시작을 취소할까요?`)) {
-                await cancelServiceForArea(areaId);
-              }
-            }
-          });
-          ["mouseleave", "touchcancel"].forEach((type) => {
-            badge.addEventListener(type, () => {
-              badgeSwipeStartX = null;
-              badgeSwipeStartY = null;
-              isBadgeSwiping = false;
-            });
-          });
-
-          headerRow.addEventListener("mousedown", (event) => {
-            if (event.button !== 0) {
-              return;
-            }
-            if (event.target.closest(".area-header-right") || event.target.closest(".status-badge-progress")) {
-              return;
-            }
-            event.stopPropagation();
-          });
-          headerRow.addEventListener("touchstart", (event) => {
-            if (event.target.closest(".area-header-right") || event.target.closest(".status-badge-progress")) {
-              return;
-            }
-            event.stopPropagation();
-          });
-        }
       }
       if (isInviteArea) {
         item.classList.add("area-invite-campaign");
@@ -2766,6 +2681,10 @@ const renderAreas = () => {
           item.classList.add("area-last-in-progress");
         }
       }
+
+      const fg = document.createElement("div");
+      fg.className = "list-item-fg";
+
       if (
         withAssignButton &&
         isLeader &&
@@ -2935,8 +2854,98 @@ const renderAreas = () => {
         rightBox.appendChild(badge);
       }
       headerRow.append(leftBox, rightBox);
-      item.append(headerRow);
+      fg.appendChild(headerRow);
+
+      if (inProgress && String(state.expandedAreaId) !== String(areaId) && isLeader) {
+        const bg = document.createElement("div");
+        bg.className = "list-item-bg";
+        const completeAction = document.createElement("div");
+        completeAction.className = "swipe-action swipe-action-left";
+        completeAction.textContent = "완료처리";
+        const cancelAction = document.createElement("div");
+        cancelAction.className = "swipe-action swipe-action-right";
+        cancelAction.textContent = "봉사취소";
+        bg.append(completeAction, cancelAction);
+        item.appendChild(bg);
+
+        let startX = null;
+        let startY = null;
+        let currentX = 0;
+        let isSwiping = false;
+        const threshold = 70;
+
+        const handleStart = (e) => {
+          if (state.expandedAreaId === areaId) return;
+          startX = e.type.startsWith("touch") ? e.touches[0].clientX : e.clientX;
+          startY = e.type.startsWith("touch") ? e.touches[0].clientY : e.clientY;
+          isSwiping = false;
+          justSwiped = false;
+          fg.style.transition = "none";
+        };
+
+        const handleMove = (e) => {
+          if (startX === null || state.expandedAreaId === areaId) return;
+          const x = e.type.startsWith("touch") ? e.touches[0].clientX : e.clientX;
+          const y = e.type.startsWith("touch") ? e.touches[0].clientY : e.clientY;
+          const dx = x - startX;
+          const dy = y - startY;
+
+          if (!isSwiping) {
+            if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+              isSwiping = true;
+            }
+          }
+
+          if (isSwiping) {
+            if (e.cancelable) e.preventDefault();
+            currentX = dx;
+            fg.style.transform = `translateX(${currentX}px)`;
+          }
+        };
+
+        const handleEnd = async (e) => {
+          if (startX === null || state.expandedAreaId === areaId) return;
+          fg.style.transition = "transform 0.2s ease-out";
+          fg.style.transform = "translateX(0)";
+
+          if (isSwiping) {
+            justSwiped = true;
+            setTimeout(() => { justSwiped = false; }, 100);
+            if (currentX > threshold) {
+              if (window.confirm(`구역 ${areaId}를 완료 처리할까요?\n(방문 기록이 없는 카드는 '부재'로 기록됩니다)`)) {
+                await finishAreaWithoutVisits(areaId);
+              }
+            } else if (currentX < -threshold) {
+              if (window.confirm(`구역 ${areaId}의 봉사 시작을 취소할까요?`)) {
+                await cancelServiceForArea(areaId);
+              }
+            }
+          }
+          startX = null;
+          startY = null;
+          isSwiping = false;
+          currentX = 0;
+        };
+
+        item.addEventListener("touchstart", handleStart, { passive: true });
+        item.addEventListener("touchmove", handleMove, { passive: false });
+        item.addEventListener("touchend", handleEnd);
+        item.addEventListener("mousedown", handleStart);
+        const moveHandler = (e) => handleMove(e);
+        const endHandler = (e) => {
+          handleEnd(e);
+          window.removeEventListener("mousemove", moveHandler);
+          window.removeEventListener("mouseup", endHandler);
+        };
+        item.addEventListener("mousedown", () => {
+          window.addEventListener("mousemove", moveHandler);
+          window.addEventListener("mouseup", endHandler);
+        });
+      }
+
+      item.appendChild(fg);
       item.addEventListener("click", (event) => {
+        if (justSwiped) return;
         if (
           event.target.closest(".area-cards") ||
           event.target.closest("#card-list") ||
@@ -3767,6 +3776,29 @@ const startServiceForArea = async (areaId) => {
       renderAdminPanel();
       renderCards();
       renderMyCarInfo();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const finishAreaWithoutVisits = async (areaId) => {
+    if (!areaId) return;
+    setLoading(true, "구역 완료 처리 중...");
+    try {
+      const res = await apiRequest("finishAreaWithoutVisits", {
+        areaId,
+        leaderName: state.user.name
+      });
+      if (!res.success) {
+        alert(res.message || "구역 완료 처리에 실패했습니다.");
+        return;
+      }
+      setStatus("구역 봉사가 완료되었습니다.");
+      await loadData();
+      collapseExpandedArea();
+      renderAreas();
+      renderCards();
+      renderAdminPanel();
     } finally {
       setLoading(false);
     }

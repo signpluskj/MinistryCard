@@ -1181,20 +1181,75 @@ button.secondary {
 }
 
 .list-item {
-  padding: 10px;
+  position: relative;
+  padding: 0; /* Changed to handle inner padding in fg */
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 4px;
+  gap: 0;
   scroll-margin-top: 140px;
+  overflow: hidden;
+  background-color: #f8fafc;
+}
+
+.list-item-bg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 1;
+}
+
+.swipe-action {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  font-weight: bold;
+  font-size: 14px;
+  color: white;
+  user-select: none;
+}
+
+.swipe-action-left {
+  background-color: #16a34a; /* green */
+}
+
+.swipe-action-right {
+  background-color: #dc2626; /* red */
+}
+
+.list-item-fg {
+  position: relative;
+  z-index: 2;
+  padding: 10px;
+  background: inherit; /* Use the parent's background */
+  transition: transform 0.2s ease-out;
+  width: 100%;
+}
+
+.list-item.active .list-item-fg {
+  background: #e0edff;
+}
+
+.list-item.area-in-progress.active .list-item-fg {
+  background: #fffbeb;
+}
+
+.list-item.area-today .list-item-fg {
+  background: #ffedd5;
+}
+
+.list-item.area-today-complete .list-item-fg {
+  background: #fffbeb;
 }
 
 .list-item.active {
   border-color: #1d4ed8;
-  background: #e0edff;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.4);
 }
 
