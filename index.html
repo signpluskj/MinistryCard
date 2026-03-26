@@ -33,12 +33,12 @@
             </button>
           </div>
           <ul class="side-menu-list">
-            <li><button type="button" data-menu="cards">구역 카드</button></li>
-            <li class="leader-only"><button type="button" data-menu="visits">완료 내역</button></li>
+            <li><button type="button" data-menu="volunteer">봉사 신청</button></li>
             <li class="leader-only"><button type="button" data-menu="car-assign">차량 배정</button></li>
             <li class="menu-separator admin-only"><span></span></li>
             <li class="admin-only"><button type="button" data-menu="admin-cards">구역카드 관리</button></li>
             <li class="admin-only"><button type="button" data-menu="admin-ev">전도인 명단 관리</button></li>
+            <li class="admin-only"><button type="button" data-menu="visits">완료 내역</button></li>
             <li class="admin-only"><button type="button" data-menu="admin-deleted">삭제 카드</button></li>
             <li class="admin-only"><button type="button" data-menu="invite-campaign">초대장 배부</button></li>
           </ul>
@@ -63,6 +63,15 @@
             <div id="completion-area-list" class="list"></div>
           </div>
         </div>
+        <div id="volunteer-overlay" class="area-overlay hidden">
+          <div class="area-overlay-content">
+            <div class="area-overlay-header">
+              <span>봉사 신청</span>
+              <button id="close-volunteer" class="icon-button" type="button">✕</button>
+            </div>
+            <div id="volunteer-body" class="volunteer-body"></div>
+          </div>
+        </div>
         <div id="car-assign-overlay" class="area-overlay hidden">
           <div class="area-overlay-content">
             <div class="area-overlay-header">
@@ -74,6 +83,10 @@
                 <div id="car-assign-evangelist-list" class="list"></div>
               </div>
               <div class="car-assign-right">
+                <div class="car-assign-top-controls">
+                  <div id="car-assign-day-list" class="weekday-scroll"></div>
+                  <div id="car-assign-slot-list" class="car-assign-slot-row"></div>
+                </div>
                 <div class="car-assign-actions">
                   <button id="car-assign-auto" type="button">자동 배정</button>
                   <button id="car-assign-add" type="button">차량 추가</button>

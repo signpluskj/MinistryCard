@@ -38,7 +38,16 @@ const state = {
   selectedCards: [],
   currentMenu: "cards",
   inviteCampaign: null,
-  inviteStats: null
+  inviteStats: null,
+  volunteerWeeks: [],
+  selectedVolunteerWeekStart: "",
+  selectedVolunteerDate: "",
+  selectedVolunteerSlot: "오전",
+  carAssignDate: "",
+  carAssignSlot: "오전",
+  carAssignAssignmentsDate: "",
+  carAssignAssignmentsAll: [],
+  volunteerDayRowScrollLeft: 0
 };
 
 let carAssignTapSelection = null;
@@ -81,6 +90,9 @@ const elements = {
   completionOverlay: document.getElementById("completion-overlay"),
   closeCompletion: document.getElementById("close-completion"),
   completionAreaList: document.getElementById("completion-area-list"),
+  volunteerOverlay: document.getElementById("volunteer-overlay"),
+  closeVolunteer: document.getElementById("close-volunteer"),
+  volunteerBody: document.getElementById("volunteer-body"),
   carAssignOverlay: document.getElementById("car-assign-overlay"),
   closeCarAssign: document.getElementById("close-car-assign"),
   adminOverlay: document.getElementById("admin-overlay"),
@@ -88,6 +100,8 @@ const elements = {
   carAssignEvangelistList: document.getElementById("car-assign-evangelist-list"),
   carAssignSelected: document.getElementById("car-assign-selected"),
   carAssignMeta: document.getElementById("car-assign-meta"),
+  carAssignDayList: document.getElementById("car-assign-day-list"),
+  carAssignSlotList: document.getElementById("car-assign-slot-list"),
   carAssignAuto: document.getElementById("car-assign-auto"),
   carAssignAdd: document.getElementById("car-assign-add"),
   carAssignReset: document.getElementById("car-assign-reset"),
@@ -140,11 +154,13 @@ const openCarSelectPopup = (areaId, cardNumbers) => {
         cardNumber: String(cardNumber),
         carId: String(car.carId || "")
       }));
+      const assignDate = state.carAssignDate || todayISO();
       setLoading(true, "카드 차량 배정 중...");
       try {
         const res = await apiRequest("assignCardsToCars", {
           areaId,
-          pairs: JSON.stringify(pairs)
+          pairs: JSON.stringify(pairs),
+          assignDate
         });
         if (!res.success) {
           alert(res.message || "카드 배정에 실패했습니다.");
@@ -168,6 +184,30 @@ const openCarSelectPopup = (areaId, cardNumbers) => {
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
+
+const toAssignmentDateText = (value) => {
+  const d = parseVisitDate(value);
+  if (!d) {
+    return "";
+  }
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yy}/${mm}/${dd}`;
+};
+
+const getCardAssignedCarIdForDate = (card, isoDate) => {
+  const carId = String((card && card["차량"]) || "");
+  if (!carId) {
+    return "";
+  }
+  const cardDateText = toAssignmentDateText(card && card["배정날짜"]);
+  const targetDateText = toAssignmentDateText(isoDate);
+  if (!cardDateText || !targetDateText || cardDateText !== targetDateText) {
+    return "";
+  }
+  return carId;
+};
 
 const isSameDay = (value, isoString) => {
   if (!value) {
@@ -362,6 +402,19 @@ const parseVisitDate = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const formatVolunteerDateText = (value) => {
+  if (!value) {
+    return "";
+  }
+  const d = parseVisitDate(value);
+  if (!d) {
+    return "";
+  }
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${m}/${day}`;
+};
+
 const setStatus = (message) => {
   if (state.statusTimer) {
     clearTimeout(state.statusTimer);
@@ -390,22 +443,28 @@ const renderMyCarInfo = () => {
   }
   const rows = state.data.assignments || [];
   const name = state.user.name;
-  if (!rows.length || !name) {
-    box.textContent = "오늘 배정된 차량 정보가 없습니다.";
+  
+  const showNoInfo = () => {
+    box.innerHTML = '<div class="car-info-main">오늘 배정된 차량 정보가 없습니다.</div>';
     box.classList.remove("hidden");
+  };
+
+  if (!rows.length || !name) {
+    showNoInfo();
     return;
   }
   const myRow =
-    rows.find((row) => String(row["이름"] || "") === String(name)) || null;
+    rows.find(
+      (row) =>
+        normalizeAssignmentName(row["이름"]) === normalizeAssignmentName(name)
+    ) || null;
   if (!myRow) {
-    box.textContent = "오늘 배정된 차량 정보가 없습니다.";
-    box.classList.remove("hidden");
+    showNoInfo();
     return;
   }
   const carId = String(myRow["차량"] || "");
   if (!carId) {
-    box.textContent = "오늘 배정된 차량 정보가 없습니다.";
-    box.classList.remove("hidden");
+    showNoInfo();
     return;
   }
   const sameCar = rows.filter(
@@ -416,7 +475,7 @@ const renderMyCarInfo = () => {
   const driverName = driverRow ? String(driverRow["이름"] || "") : "";
   const passengerNames = sameCar
     .filter((row) => String(row["역할"] || "") !== "운전자")
-    .map((row) => String(row["이름"] || ""))
+    .map((row) => normalizeAssignmentName(row["이름"]))
     .filter(Boolean);
   const passengers = Array.from(new Set(passengerNames));
   const textParts = [];
@@ -427,11 +486,12 @@ const renderMyCarInfo = () => {
   if (passengers.length) {
     textParts.push(passengers.join(", "));
   }
-  const cards = (state.data.cards || []).filter(
-    (card) => String(card["차량"] || "") === carId
-  );
   const lines = [];
-  lines.push(textParts.join(" | "));
+  lines.push(`<div class="car-info-main">${textParts.join(" | ")}</div>`);
+  
+  const cards = (state.data.cards || []).filter(
+    (card) => getCardAssignedCarIdForDate(card, todayISO()) === carId
+  );
   if (cards.length) {
     const labels = cards
       .slice()
@@ -439,9 +499,10 @@ const renderMyCarInfo = () => {
         compareCardNumbers(a["카드번호"] || "", b["카드번호"] || "")
       )
       .map((card) => String(card["카드번호"] || ""));
-    lines.push(`오늘 카드: ${labels.join(", ")}`);
+    lines.push(`<div class="car-info-separator"></div>`);
+    lines.push(`<div class="card-info-main">${labels.join(", ")}</div>`);
   }
-  box.innerHTML = lines.join("<br>");
+  box.innerHTML = lines.join("");
   box.classList.remove("hidden");
 };
 
@@ -450,9 +511,28 @@ const getEvangelistByName = (name) =>
     (row) => String(row["이름"] || "") === String(name || "")
   ) || null;
 
+const normalizeAssignmentName = (value) => {
+  return String(value || "")
+    .replace(/\s*\((오전|오후)\)\s*$/g, "")
+    .trim();
+};
+
+const sanitizeAssignmentRows = (rows) => {
+  return (rows || []).map((row) => {
+    if (!row || typeof row !== "object") {
+      return row;
+    }
+    const normalized = Object.assign({}, row);
+    normalized["이름"] = normalizeAssignmentName(row["이름"]);
+    return normalized;
+  });
+};
+
 const buildInitialParticipantsFromAssignments = () => {
   const names =
-    (state.data.assignments || []).map((row) => String(row["이름"] || "")) || [];
+    (state.data.assignments || []).map((row) =>
+      normalizeAssignmentName(row["이름"])
+    ) || [];
   state.participantsToday = Array.from(new Set(names));
 };
 
@@ -461,7 +541,7 @@ const buildCarAssignmentsFromServer = () => {
   const byCar = {};
   rows.forEach((row) => {
     const carId = String(row["차량"] || "");
-    const name = String(row["이름"] || "");
+    const name = normalizeAssignmentName(row["이름"]);
     const role = String(row["역할"] || "");
     if (!carId || !name) {
       return;
@@ -773,33 +853,47 @@ const saveCarAssignments = async () => {
     const driver = car.driver;
     const members = car.members || [];
     if (driver) {
-      rows.push({ carId, name: driver, role: "운전자" });
+      rows.push({ carId, name: normalizeAssignmentName(driver), role: "운전자" });
     }
     members.forEach((name) => {
       if (!name || name === driver) {
         return;
       }
-      rows.push({ carId, name, role: "탑승자" });
+      rows.push({ carId, name: normalizeAssignmentName(name), role: "탑승자" });
     });
   });
   setLoading(true, "차량 배정 저장 중...");
   try {
     const res = await apiRequest("saveCarAssignments", {
-      assignments: JSON.stringify(rows)
+      assignments: JSON.stringify(rows),
+      date: state.carAssignDate || todayISO(),
+      slot: state.carAssignSlot || "오전"
     });
     if (!res.success) {
       alert(res.message || "차량 배정 저장에 실패했습니다.");
       return;
     }
-    state.data.assignments = res.assignments || [];
-    buildInitialParticipantsFromAssignments();
-    buildCarAssignmentsFromServer();
+    const savedRows = sanitizeAssignmentRows(res.assignments || []);
+    const currentDate = state.carAssignDate || todayISO();
+    const currentSlot = state.carAssignSlot || "오전";
+    const existingRows =
+      state.carAssignAssignmentsDate === currentDate
+        ? state.carAssignAssignmentsAll || []
+        : [];
+    const keptRows = existingRows.filter((row) => {
+      const rowSlot = String(row["시간대"] || "").trim() || "오전";
+      return rowSlot !== currentSlot;
+    });
+    state.carAssignAssignmentsDate = currentDate;
+    state.carAssignAssignmentsAll = keptRows.concat(savedRows);
+    applyCarAssignDataForSlot(currentDate, currentSlot);
 
     const cards = state.data.cards || [];
+    const assignDate = state.carAssignDate || todayISO();
     const byArea = {};
     cards.forEach((card) => {
       const areaId = String(card["구역번호"] || "");
-      const carId = String(card["차량"] || "");
+      const carId = getCardAssignedCarIdForDate(card, assignDate);
       const cardNumber = String(card["카드번호"] || "");
       if (!areaId || !carId || !cardNumber) {
         return;
@@ -816,7 +910,8 @@ const saveCarAssignments = async () => {
       if (!pairs.length) continue;
       const resCards = await apiRequest("assignCardsToCars", {
         areaId,
-        pairs: JSON.stringify(pairs)
+        pairs: JSON.stringify(pairs),
+        assignDate
       });
       if (!resCards.success) {
         alert(resCards.message || "구역카드 배정 저장에 실패했습니다.");
@@ -839,12 +934,16 @@ const saveCarAssignments = async () => {
 const resetCarAssignmentsOnServer = async () => {
   setLoading(true, "차량 배정 초기화 중...");
   try {
-    const res = await apiRequest("resetCarAssignments", {});
+    const targetDate = state.carAssignDate || state.selectedVolunteerDate || todayISO();
+    const targetSlot = state.carAssignSlot || "오전";
+    const res = await apiRequest("resetCarAssignments", { date: targetDate });
     if (!res.success) {
       alert(res.message || "차량 배정 초기화에 실패했습니다.");
       return;
     }
     state.data.assignments = res.assignments || [];
+    state.carAssignAssignmentsDate = "";
+    state.carAssignAssignmentsAll = [];
     if (res.cards) {
       state.data.cards = res.cards || state.data.cards;
     }
@@ -854,6 +953,185 @@ const resetCarAssignmentsOnServer = async () => {
     renderCards();
     renderAdminPanel();
     renderMyCarInfo();
+    await loadVolunteerConfig();
+    state.carAssignSlot = targetSlot;
+    await setCarAssignDate(targetDate);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const renderCarAssignDayRow = () => {
+  const container = elements.carAssignDayList;
+  if (!container) {
+    return;
+  }
+  container.innerHTML = "";
+  const days = buildVolunteerDayList();
+  const current = state.carAssignDate || todayISO();
+  if (!days.length) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "weekday-chip active";
+    btn.textContent = "오늘";
+    btn.addEventListener("click", () => {
+      state.carAssignDate = todayISO();
+    });
+    container.appendChild(btn);
+    return;
+  }
+  days.forEach((d) => {
+    if (!d.isoDate) {
+      return;
+    }
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "weekday-chip";
+    if (d.isoDate === current) {
+      btn.classList.add("active");
+    }
+    const weekdayShortMap = {
+      월: "월",
+      화: "화",
+      수: "수",
+      목: "목",
+      금: "금",
+      토: "토",
+      일: "일"
+    };
+    const dateLabel = formatVolunteerDateText(d.dateText || d.isoDate);
+    const weekdayRaw = String(d.weekday || "").trim();
+    const weekdayLabel = weekdayRaw ? weekdayShortMap[weekdayRaw] || weekdayRaw : "";
+    btn.innerHTML = `<span class="weekday-chip-date">${dateLabel}</span><span class="weekday-chip-weekday">${weekdayLabel}</span>`;
+    btn.dataset.isoDate = d.isoDate;
+    btn.addEventListener("click", () => {
+      if (state.carAssignDate === d.isoDate) {
+        return;
+      }
+      setCarAssignDate(d.isoDate);
+    });
+    container.appendChild(btn);
+  });
+};
+
+const renderCarAssignSlotRow = () => {
+  const container = elements.carAssignSlotList;
+  if (!container) {
+    return;
+  }
+  container.innerHTML = "";
+  const days = buildVolunteerDayList();
+  const currentDate = state.carAssignDate || todayISO();
+  const day = days.find((d) => d.isoDate === currentDate) || null;
+  const slots = [];
+  if (!day || day.slotAMEnabled !== false) {
+    slots.push("오전");
+  }
+  if (!day || day.slotPMEnabled !== false) {
+    slots.push("오후");
+  }
+  const availableSlots = slots.length ? slots : ["오전"];
+  if (availableSlots.indexOf(state.carAssignSlot) === -1) {
+    state.carAssignSlot = availableSlots[0];
+  }
+  availableSlots.forEach((slot) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "car-assign-slot-btn";
+    btn.classList.add(slot === "오후" ? "slot-pm" : "slot-am");
+    if (slot === state.carAssignSlot) {
+      btn.classList.add("active");
+    }
+    btn.textContent = slot;
+    btn.dataset.slot = slot;
+    btn.addEventListener("click", () => {
+      if (state.carAssignSlot === slot) {
+        return;
+      }
+      setCarAssignSlot(slot);
+    });
+    container.appendChild(btn);
+  });
+};
+
+const applyCarAssignDataForSlot = (date, slot, dayOverride) => {
+  const selectedSlot = slot === "오후" ? "오후" : "오전";
+  const day =
+    dayOverride || buildVolunteerDayList().find((d) => d.isoDate === date) || null;
+  const allRows =
+    state.carAssignAssignmentsDate === date
+      ? state.carAssignAssignmentsAll || []
+      : [];
+  const filteredRows = allRows.filter((row) => {
+    const rowSlot = String(row["시간대"] || "").trim() || "오전";
+    return rowSlot === selectedSlot;
+  });
+  state.data.assignments = sanitizeAssignmentRows(filteredRows);
+  const signupNames = day
+    ? (day.participantEntries || [])
+        .filter((entry) => String(entry.slot || "오전") === selectedSlot)
+        .map((entry) => normalizeAssignmentName(entry.name))
+    : [];
+  const assignmentNames =
+    (state.data.assignments || []).map((row) =>
+      normalizeAssignmentName(row["이름"])
+    ) || [];
+  const baseNames = []
+    .concat(signupNames)
+    .concat(assignmentNames)
+    .filter((name) => name);
+  state.participantsToday = Array.from(new Set(baseNames));
+  buildCarAssignmentsFromServer();
+  renderCarAssignDayRow();
+  renderCarAssignSlotRow();
+  renderCarAssignPopup();
+};
+
+const setCarAssignSlot = async (slotName) => {
+  const normalizedSlot = slotName === "오후" ? "오후" : "오전";
+  state.carAssignSlot = normalizedSlot;
+  const targetDate = state.carAssignDate || todayISO();
+  if (state.carAssignAssignmentsDate === targetDate) {
+    applyCarAssignDataForSlot(targetDate, normalizedSlot);
+    return;
+  }
+  await setCarAssignDate(targetDate);
+};
+
+const setCarAssignDate = async (isoDate) => {
+  const date = getNearestVolunteerDateISO(isoDate || todayISO());
+  state.carAssignDate = date;
+  setLoading(true, "차량 배정 정보를 불러오는 중...");
+  try {
+    const days = buildVolunteerDayList();
+    const day =
+      days.find((d) => d.isoDate === date) || null;
+    const availableSlots = [];
+    if (!day || day.slotAMEnabled !== false) {
+      availableSlots.push("오전");
+    }
+    if (!day || day.slotPMEnabled !== false) {
+      availableSlots.push("오후");
+    }
+    if (!availableSlots.length) {
+      availableSlots.push("오전");
+    }
+    if (availableSlots.indexOf(state.carAssignSlot) === -1) {
+      state.carAssignSlot = availableSlots[0];
+    }
+    const selectedSlot = state.carAssignSlot || "오전";
+    const res = await apiRequest("getCarAssignmentsByDate", { date });
+    if (!res || res.success === false) {
+      if (res && res.message) {
+        alert(res.message);
+      } else {
+        alert("차량 배정 정보를 불러오는 데 실패했습니다.");
+      }
+      return;
+    }
+    state.carAssignAssignmentsDate = date;
+    state.carAssignAssignmentsAll = sanitizeAssignmentRows(res.assignments || []);
+    applyCarAssignDataForSlot(date, selectedSlot, day);
   } finally {
     setLoading(false);
   }
@@ -896,7 +1174,8 @@ const renderCarAssignmentsPanel = () => {
       try {
         const res = await apiRequest("assignCardsToCars", {
           areaId,
-          pairs: JSON.stringify([{ cardNumber: String(cardNumber), carId: String(car.carId || "") }])
+          pairs: JSON.stringify([{ cardNumber: String(cardNumber), carId: String(car.carId || "") }]),
+          assignDate: state.carAssignDate || todayISO()
         });
         if (!res.success) {
           alert(res.message || "카드 배정에 실패했습니다.");
@@ -927,7 +1206,11 @@ const renderCarAssignmentsPanel = () => {
     const cardTagsBox = document.createElement("div");
     cardTagsBox.className = "car-card-list";
     const assignedCards = allCards.filter(
-      (card) => String(card["차량"] || "") === String(car.carId || "")
+      (card) =>
+        getCardAssignedCarIdForDate(
+          card,
+          state.carAssignDate || todayISO()
+        ) === String(car.carId || "")
     );
     if (assignedCards.length) {
       const label = document.createElement("div");
@@ -979,6 +1262,7 @@ const renderCarAssignmentsPanel = () => {
             );
             if (target) {
               target["차량"] = "";
+              target["배정날짜"] = "";
             }
             renderCards();
             renderCarAssignPopup();
@@ -1064,15 +1348,17 @@ const renderSelectedParticipants = () => {
   const assigned = new Set();
   (state.carAssignments || []).forEach((car) => {
     if (car.driver) {
-      assigned.add(String(car.driver));
+      assigned.add(normalizeAssignmentName(car.driver));
     }
     (car.members || []).forEach((name) => {
       if (name) {
-        assigned.add(String(name));
+        assigned.add(normalizeAssignmentName(name));
       }
     });
   });
-  const unassigned = names.filter((name) => !assigned.has(String(name)));
+  const unassigned = names.filter(
+    (name) => !assigned.has(normalizeAssignmentName(name))
+  );
   const frag = document.createDocumentFragment();
   if (!unassigned.length) {
     box.appendChild(frag);
@@ -1120,8 +1406,8 @@ const renderCarAssignPopup = () => {
   if (!elements.carAssignOverlay || !state.user) {
     return;
   }
-  const isLeader =
-    state.user.role === "관리자" || state.user.role === "인도자";
+  const userRole = String(state.user.role || "").trim();
+  const isLeader = userRole === "관리자" || userRole === "인도자";
   if (!isLeader) {
     elements.carAssignOverlay.classList.add("hidden");
     return;
@@ -1139,7 +1425,9 @@ const renderCarAssignPopup = () => {
     const itemsHtml = list
       .map((row) => {
         const name = row["이름"] || "";
-        const isParticipant = state.participantsToday.includes(name);
+        const isParticipant = state.participantsToday.includes(
+          normalizeAssignmentName(name)
+        );
         return `<div class="ev-item${
           isParticipant ? " selected" : ""
         }" data-name="${name}">${name}</div>`;
@@ -1150,6 +1438,8 @@ const renderCarAssignPopup = () => {
     listEl.innerHTML = itemsHtml + tempHtml;
   }
   const meta = elements.carAssignMeta;
+  renderCarAssignDayRow();
+  renderCarAssignSlotRow();
   if (meta) {
     const rows = state.data.assignments || [];
     if (rows.length) {
@@ -1159,8 +1449,10 @@ const renderCarAssignPopup = () => {
         rows[0]["Date"] ||
         "";
       const dateText = formatAssignmentDate(date);
+      const slot = String(rows[0]["시간대"] || "").trim();
+      const slotText = slot ? ` (${slot})` : "";
       meta.textContent = dateText
-        ? `배정된 날짜: ${dateText}`
+        ? `배정된 날짜: ${dateText}${slotText}`
         : "오늘 차량 배정이 저장되어 있습니다.";
     } else {
       meta.textContent = "아직 저장된 차량 배정이 없습니다. 배정 후 저장해 주세요.";
@@ -1212,12 +1504,12 @@ const refreshAll = async () => {
     renderCards();
     renderAdminPanel();
     renderMyCarInfo();
+    renderVolunteerOverlay();
     if (state.currentMenu === "visits" && state.completionExpandedAreaId) {
       renderVisitsView();
     }
     if (state.currentMenu === "car-assign") {
-      resetCarAssignmentsFromSaved();
-      renderCarAssignPopup();
+      await setCarAssignDate(state.carAssignDate || todayISO());
     }
   } finally {
     setLoading(false);
@@ -1247,6 +1539,932 @@ const apiRequest = async (action, payload = {}, method = "POST") => {
     alert("서버에 연결할 수 없습니다. 나중에 다시 시도해 주세요.");
     throw error;
   }
+};
+
+const buildVolunteerDayList = () => {
+  const weeks = state.volunteerWeeks || [];
+  const days = [];
+  weeks.forEach((week) => {
+    const weekStartText = week.weekStartText || "";
+    const weekStartISO = week.weekStartISO || "";
+    (week.days || []).forEach((day) => {
+      days.push({
+        weekStartText,
+        weekStartISO,
+        dateText: day.dateText || "",
+        isoDate: day.isoDate || "",
+        weekday: day.weekday || "",
+        participants: day.participants || [],
+        participantEntries: day.participantEntries || [],
+        slotAMEnabled: day.slotAMEnabled,
+        slotPMEnabled: day.slotPMEnabled,
+        fixedMemo: day.fixedMemo || "",
+        extraMemo: day.extraMemo || "",
+        fixedMemoAM: day.fixedMemoAM || "",
+        fixedMemoPM: day.fixedMemoPM || "",
+        extraMemoAM: day.extraMemoAM || "",
+        extraMemoPM: day.extraMemoPM || ""
+      });
+    });
+  });
+  days.sort((a, b) => {
+    const da = a.isoDate || "";
+    const db = b.isoDate || "";
+    return da.localeCompare(db);
+  });
+  return days;
+};
+
+const getNearestVolunteerDateISO = (baseDate) => {
+  const days = buildVolunteerDayList().filter((d) => Boolean(d.isoDate));
+  if (!days.length) {
+    return baseDate || todayISO();
+  }
+  const requested = String(baseDate || "").trim();
+  if (requested) {
+    const exact = days.find((d) => d.isoDate === requested);
+    if (exact) {
+      return exact.isoDate;
+    }
+  }
+  const base = parseVisitDate(requested || todayISO()) || new Date();
+  const baseTime = new Date(
+    base.getFullYear(),
+    base.getMonth(),
+    base.getDate()
+  ).getTime();
+  const sorted = days
+    .slice()
+    .sort((a, b) => {
+      const da = parseVisitDate(a.isoDate);
+      const db = parseVisitDate(b.isoDate);
+      const ta = da
+        ? new Date(da.getFullYear(), da.getMonth(), da.getDate()).getTime()
+        : baseTime;
+      const tb = db
+        ? new Date(db.getFullYear(), db.getMonth(), db.getDate()).getTime()
+        : baseTime;
+      const diffA = Math.abs(ta - baseTime);
+      const diffB = Math.abs(tb - baseTime);
+      if (diffA !== diffB) {
+        return diffA - diffB;
+      }
+      return String(a.isoDate || "").localeCompare(String(b.isoDate || ""));
+    });
+  return sorted[0].isoDate || todayISO();
+};
+
+const ensureVolunteerSelection = () => {
+  const weeks = state.volunteerWeeks || [];
+  if (!weeks.length) {
+    state.selectedVolunteerWeekStart = "";
+    state.selectedVolunteerDate = "";
+    state.selectedVolunteerSlot = "오전";
+    return;
+  }
+  const allDays = buildVolunteerDayList();
+  if (!allDays.length) {
+    state.selectedVolunteerWeekStart = "";
+    state.selectedVolunteerDate = "";
+    state.selectedVolunteerSlot = "오전";
+    return;
+  }
+  const today = todayISO();
+  const futureDays = allDays.filter(
+    (d) => d.isoDate && d.isoDate >= today
+  );
+  const days = futureDays.length ? futureDays : allDays;
+  if (state.selectedVolunteerDate) {
+    const found = days.find(
+      (d) => d.isoDate === state.selectedVolunteerDate
+    );
+    if (found) {
+      state.selectedVolunteerWeekStart = found.weekStartText || "";
+      return;
+    }
+  }
+  const todayDay = days.find((d) => d.isoDate === today);
+  const target = todayDay || days[0];
+  state.selectedVolunteerDate = target.isoDate || "";
+  state.selectedVolunteerWeekStart = target.weekStartText || "";
+  if (!state.selectedVolunteerSlot) {
+    state.selectedVolunteerSlot = "오전";
+  }
+};
+
+const loadVolunteerConfig = async () => {
+  setLoading(true, "봉사 신청 정보를 불러오는 중...");
+  try {
+    const res = await apiRequest("getVolunteerConfig", {});
+    if (!res || res.success === false) {
+      if (res && res.message) {
+        alert(res.message);
+      }
+      return;
+    }
+    state.volunteerWeeks = res.weeks || [];
+    ensureVolunteerSelection();
+  } finally {
+    setLoading(false);
+  }
+};
+
+const renderVolunteerOverlay = () => {
+  const overlay = elements.volunteerOverlay;
+  const body = elements.volunteerBody;
+  if (!overlay || !body || !state.user) {
+    return;
+  }
+  const prevDayRow = body.querySelector(".weekday-scroll");
+  if (prevDayRow) {
+    state.volunteerDayRowScrollLeft = prevDayRow.scrollLeft || 0;
+  }
+  const weeks = state.volunteerWeeks || [];
+  body.innerHTML = "";
+  const userRole = String(state.user.role || "").trim();
+  const isAdmin = userRole === "관리자";
+  const isLeader = userRole === "인도자";
+  const canManageVolunteerSignups = isAdmin || isLeader;
+
+  const allDays = buildVolunteerDayList();
+  ensureVolunteerSelection();
+
+  if (!weeks.length && !isAdmin) {
+    const msg = document.createElement("div");
+    msg.className = "volunteer-empty-msg";
+    msg.textContent = "등록된 봉사 주간이 없습니다.";
+    body.appendChild(msg);
+    return;
+  }
+
+  const today = todayISO();
+  const selectableDays = allDays.filter((d) => d.isoDate && d.isoDate >= today);
+  const days = selectableDays.length ? selectableDays : allDays;
+  
+  let selectedDay = allDays.find((d) => d.isoDate === state.selectedVolunteerDate) || null;
+  if (!selectedDay && allDays.length) {
+    selectedDay = allDays[0];
+    state.selectedVolunteerDate = selectedDay.isoDate || "";
+    state.selectedVolunteerWeekStart = selectedDay.weekStartText || "";
+  }
+
+  const getAvailableVolunteerSlots = (day) => {
+    if (!day) return ["오전"];
+    const slots = [];
+    if (day.slotAMEnabled !== false) slots.push("오전");
+    if (day.slotPMEnabled !== false) slots.push("오후");
+    return slots.length ? slots : ["오전"];
+  };
+
+  const availableSlots = getAvailableVolunteerSlots(selectedDay);
+  if (availableSlots.indexOf(state.selectedVolunteerSlot) === -1) {
+    state.selectedVolunteerSlot = availableSlots[0];
+  }
+
+  const selectedWeek = (selectedDay && weeks.length)
+    ? weeks.find(w => String(w.weekStartText || "") === String(selectedDay.weekStartText || "")) || null
+    : null;
+
+  const layout = document.createElement("div");
+  layout.className = "volunteer-layout";
+  
+  const mainBox = document.createElement("div");
+  mainBox.className = "volunteer-main";
+  layout.appendChild(mainBox);
+
+  if (weeks.length === 0) {
+    const emptyMsg = document.createElement("div");
+    emptyMsg.className = "volunteer-empty-msg";
+    emptyMsg.textContent = "등록된 봉사 주간이 없습니다. 하단 관리자 메뉴에서 주간을 등록해 주세요.";
+    mainBox.appendChild(emptyMsg);
+  } else if (allDays.length === 0) {
+    const emptyMsg = document.createElement("div");
+    emptyMsg.className = "volunteer-empty-msg";
+    emptyMsg.textContent = "등록된 봉사 날짜가 없습니다.";
+    mainBox.appendChild(emptyMsg);
+  } else {
+    // Standard rendering logic
+    const header = document.createElement("div");
+    header.className = "volunteer-week-header";
+    const range = document.createElement("div");
+    range.className = "volunteer-week-range";
+    range.textContent = "";
+    header.appendChild(range);
+    mainBox.appendChild(header);
+
+    const grid = document.createElement("div");
+    grid.className = "volunteer-main-grid";
+    const dayCard = document.createElement("div");
+    dayCard.className = "volunteer-card volunteer-card-days";
+    
+    const bindLongPress = (element, onLongPress) => {
+      let timer = null;
+      let longPressed = false;
+      const start = (event) => {
+        if (event) event.stopPropagation();
+        longPressed = false;
+        timer = setTimeout(async () => {
+          longPressed = true;
+          timer = null;
+          await onLongPress();
+        }, 700);
+      };
+      const cancel = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      };
+      element.addEventListener("mousedown", (event) => {
+        if (event.button !== 0) return;
+        start(event);
+      });
+      element.addEventListener("touchstart", start);
+      ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((type) => {
+        element.addEventListener(type, cancel);
+      });
+      element.addEventListener("click", (event) => {
+        if (!longPressed) return;
+        event.preventDefault();
+        event.stopPropagation();
+        longPressed = false;
+      });
+    };
+
+    const weekdayFullMap = {
+      월: "월요일", 화: "화요일", 수: "수요일", 목: "목요일",
+      금: "금요일", 토: "토요일", 일: "일요일"
+    };
+
+    const todayDate = new Date();
+    const todayYear = todayDate.getFullYear();
+    const todayMonth = todayDate.getMonth() + 1;
+    const todayDay = todayDate.getDate();
+    const todayWeekday = weekdayFullMap[["일", "월", "화", "수", "목", "금", "토"][todayDate.getDay()]] || "";
+
+    const todayLabel = document.createElement("div");
+    todayLabel.className = "volunteer-today-label";
+    todayLabel.innerHTML = `<div class="volunteer-today-text">오늘은</div><div class="volunteer-today-date">${todayYear}년 ${todayMonth}월 ${todayDay}일 ${todayWeekday}</div>`;
+    mainBox.appendChild(todayLabel);
+
+    const dayRow = document.createElement("div");
+    dayRow.className = "weekday-scroll";
+    
+    if (days.length) {
+      days.forEach((d) => {
+        if (!d.isoDate) return;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "weekday-chip";
+        if (d.isoDate === state.selectedVolunteerDate) {
+          btn.classList.add("active");
+        }
+        const dateLabel = formatVolunteerDateText(d.dateText || d.isoDate);
+        const weekdayRaw = String(d.weekday || "").trim();
+        const weekdayLabel = weekdayRaw ? (weekdayFullMap[weekdayRaw] || `${weekdayRaw}요일`).replace("요일", "") : "";
+        btn.innerHTML = `<span class="weekday-chip-date">${dateLabel}</span><span class="weekday-chip-weekday">${weekdayLabel}</span>`;
+        btn.dataset.isoDate = d.isoDate;
+        btn.addEventListener("click", () => {
+          state.selectedVolunteerDate = d.isoDate || "";
+          state.selectedVolunteerWeekStart = d.weekStartText || "";
+          const slots = getAvailableVolunteerSlots(d);
+          if (slots.indexOf(state.selectedVolunteerSlot) === -1) {
+            state.selectedVolunteerSlot = slots[0] || "오전";
+          }
+          renderVolunteerOverlay();
+        });
+        if (isAdmin) {
+          bindLongPress(btn, async () => {
+            const ok = window.confirm(`${dateLabel} ${weekdayLabel}의 오전/오후 신청 전체를 삭제할까요?`);
+            if (!ok) return;
+            setLoading(true, "날짜를 삭제하는 중...");
+            try {
+              const res = await apiRequest("removeVolunteerDay", { date: d.isoDate || "" });
+              if (!res || res.success === false) {
+                alert((res && res.message) || "날짜 삭제 중 오류가 발생했습니다.");
+                return;
+              }
+              state.volunteerWeeks = res.weeks || [];
+              ensureVolunteerSelection();
+              renderVolunteerOverlay();
+            } finally {
+              setLoading(false);
+            }
+          });
+        }
+        dayRow.appendChild(btn);
+      });
+    } else {
+      const weekdayNames = ["월", "화", "수", "목", "금", "토", "일"];
+      weekdayNames.forEach((name) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "weekday-chip";
+        btn.textContent = name;
+        dayRow.appendChild(btn);
+      });
+    }
+    dayCard.appendChild(dayRow);
+    dayRow.addEventListener(
+      "scroll",
+      () => {
+        state.volunteerDayRowScrollLeft = dayRow.scrollLeft || 0;
+      },
+      { passive: true }
+    );
+    const savedVolunteerDayRowScrollLeft = Number(state.volunteerDayRowScrollLeft) || 0;
+    requestAnimationFrame(() => {
+      dayRow.scrollLeft = savedVolunteerDayRowScrollLeft;
+    });
+    grid.appendChild(dayCard);
+
+    const selectedCard = document.createElement("div");
+    selectedCard.className = "volunteer-card volunteer-card-selected";
+    
+    if (selectedDay) {
+      const dateText = formatVolunteerDateText(selectedDay.dateText || selectedDay.isoDate);
+      const weekdayRaw = String(selectedDay.weekday || "").trim();
+      const weekdayLabel = weekdayRaw ? (weekdayFullMap[weekdayRaw] || `${weekdayRaw}요일`) : "";
+      
+      const daySlots = getAvailableVolunteerSlots(selectedDay);
+      daySlots.forEach((slotName) => {
+        const fixedMemoText = String(
+          slotName === "오후" ? selectedDay.fixedMemoPM || selectedDay.fixedMemo || "" : selectedDay.fixedMemoAM || selectedDay.fixedMemo || ""
+        ).trim();
+        const extraMemoText = String(
+          slotName === "오후" ? selectedDay.extraMemoPM || selectedDay.extraMemo || "" : selectedDay.extraMemoAM || selectedDay.extraMemo || ""
+        ).trim();
+        const memoParts = [];
+        if (fixedMemoText) memoParts.push(fixedMemoText);
+        if (extraMemoText) memoParts.push(extraMemoText);
+        const memoText = memoParts.join("\n");
+        const section = document.createElement("div");
+        section.className = "volunteer-slot-section";
+        const slotHeader = document.createElement("div");
+        slotHeader.className = "volunteer-slot-header";
+        slotHeader.textContent = `${dateText} ${weekdayLabel} ${slotName}`;
+        section.appendChild(slotHeader);
+        if (memoText) {
+          const slotMemo = document.createElement("div");
+          slotMemo.className = "volunteer-slot-memo";
+          slotMemo.textContent = memoText;
+          section.appendChild(slotMemo);
+        }
+        const memoDivider = document.createElement("div");
+        memoDivider.className = "volunteer-slot-memo-divider";
+        section.appendChild(memoDivider);
+        const list = document.createElement("div");
+        list.className = "volunteer-participant-list";
+        const entries = (selectedDay.participantEntries || []).filter(e => (e.slot || "오전") === slotName);
+        if (entries.length) {
+          entries.forEach((entry) => {
+            const entryName = String(entry.name || "");
+            const chip = document.createElement("div");
+            chip.className = "volunteer-participant";
+            chip.textContent = entryName;
+            if (canManageVolunteerSignups) {
+              bindLongPress(chip, async () => {
+                const ok = window.confirm(`${entryName} (${slotName}) 신청자를 삭제할까요?`);
+                if (!ok) return;
+                setLoading(true, "신청자를 삭제하는 중...");
+                try {
+                  const res = await apiRequest("removeVolunteerByAdmin", { date: selectedDay.isoDate, name: entryName, slot: slotName });
+                  if (!res || res.success === false) {
+                    alert((res && res.message) || "신청자 삭제 중 오류가 발생했습니다.");
+                    return;
+                  }
+                  state.volunteerWeeks = res.weeks || [];
+                  ensureVolunteerSelection();
+                  renderVolunteerOverlay();
+                } finally {
+                  setLoading(false);
+                }
+              });
+            }
+            list.appendChild(chip);
+          });
+        } else {
+          const none = document.createElement("div");
+          none.className = "volunteer-none";
+          none.textContent = "아직 신청한 사람이 없습니다.";
+          list.appendChild(none);
+        }
+        section.appendChild(list);
+        if (state.user) {
+          const isoDate = selectedDay.isoDate || "";
+          if (isoDate && isoDate >= today) {
+            const currentName = state.user.name;
+            const already = entries.some(e => String(e.name || "") === String(currentName));
+            const actionBtn = document.createElement("button");
+            actionBtn.type = "button";
+            actionBtn.className = "volunteer-slot-action-btn";
+            if (already) actionBtn.classList.add("cancel");
+            actionBtn.textContent = already ? "취소하기" : "신청하기";
+            actionBtn.addEventListener("click", async () => {
+              const applying = !already;
+              setLoading(true, applying ? "봉사 신청 중..." : "봉사 신청 취소 중...");
+              try {
+                const action = applying ? "applyVolunteer" : "cancelVolunteer";
+                const res = await apiRequest(action, { date: selectedDay.isoDate, name: state.user.name, slot: slotName });
+                if (!res || res.success === false) {
+                  alert((res && res.message) || (applying ? "신청에 실패했습니다." : "신청 취소에 실패했습니다."));
+                  return;
+                }
+                state.volunteerWeeks = res.weeks || [];
+                ensureVolunteerSelection();
+                renderVolunteerOverlay();
+                setStatus(applying ? "봉사 신청이 등록되었습니다." : "봉사 신청이 취소되었습니다.");
+              } finally {
+                setLoading(false);
+              }
+            });
+            section.appendChild(actionBtn);
+          }
+        }
+        if (canManageVolunteerSignups) {
+          const addBtn = document.createElement("button");
+          addBtn.type = "button";
+          addBtn.className = "volunteer-admin-add-btn";
+          addBtn.textContent = "+ 신청자 추가/취소";
+          addBtn.addEventListener("click", async () => {
+            const evangelists = (state.data.evangelists || []).map((row) => String(row["이름"] || "").trim()).filter((name) => !!name);
+            const uniqueEvangelists = Array.from(new Set(evangelists));
+            const initialSelectedNames = new Set(
+              entries.map((entry) => String(entry.name || "").trim()).filter((name) => !!name)
+            );
+            const allSelectableNames = Array.from(
+              new Set(uniqueEvangelists.concat(Array.from(initialSelectedNames)))
+            ).filter((name) => !!name);
+            const workingSelectedNames = new Set(initialSelectedNames);
+            const existingPicker = section.querySelector(".volunteer-admin-add-picker");
+            if (existingPicker) {
+              existingPicker.remove();
+              return;
+            }
+            const picker = document.createElement("div");
+            picker.className = "volunteer-admin-add-picker";
+            const title = document.createElement("div");
+            title.className = "volunteer-admin-add-picker-title";
+            title.textContent = `${slotName} 신청자 선택 (선택=신청됨, 해제=취소)`;
+            picker.appendChild(title);
+            const customRow = document.createElement("div");
+            customRow.className = "volunteer-admin-add-custom-row";
+            const customInput = document.createElement("input");
+            customInput.type = "text";
+            customInput.className = "volunteer-admin-add-custom-input";
+            customInput.placeholder = "이름 입력";
+            const customAddBtn = document.createElement("button");
+            customAddBtn.type = "button";
+            customAddBtn.className = "volunteer-admin-add-custom-btn";
+            customAddBtn.textContent = "+추가";
+            customRow.appendChild(customInput);
+            customRow.appendChild(customAddBtn);
+            picker.appendChild(customRow);
+            const listWrap = document.createElement("div");
+            listWrap.className = "volunteer-admin-add-list";
+            const renderNameButtons = () => {
+              listWrap.innerHTML = "";
+              const orderedNames = allSelectableNames
+                .slice()
+                .sort((a, b) => a.localeCompare(b, "ko-KR"));
+              orderedNames.forEach((name) => {
+              const nameBtn = document.createElement("button");
+              nameBtn.type = "button";
+              nameBtn.className = "volunteer-admin-add-name";
+              nameBtn.classList.add(slotName === "오후" ? "slot-pm" : "slot-am");
+              if (workingSelectedNames.has(name)) {
+                nameBtn.classList.add("selected");
+              }
+              nameBtn.textContent = name;
+              nameBtn.addEventListener("click", () => {
+                if (workingSelectedNames.has(name)) {
+                  workingSelectedNames.delete(name);
+                  nameBtn.classList.remove("selected");
+                } else {
+                  workingSelectedNames.add(name);
+                  nameBtn.classList.add("selected");
+                }
+              });
+              listWrap.appendChild(nameBtn);
+              });
+            };
+            renderNameButtons();
+            const addCustomName = () => {
+              const customName = String(customInput.value || "").trim();
+              if (!customName) {
+                return;
+              }
+              if (!allSelectableNames.includes(customName)) {
+                allSelectableNames.push(customName);
+              }
+              workingSelectedNames.add(customName);
+              customInput.value = "";
+              renderNameButtons();
+            };
+            customAddBtn.addEventListener("click", addCustomName);
+            customInput.addEventListener("keydown", (event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                addCustomName();
+              }
+            });
+            picker.appendChild(listWrap);
+            const saveBtn = document.createElement("button");
+            saveBtn.type = "button";
+            saveBtn.className = "volunteer-admin-add-save";
+            saveBtn.textContent = "저장";
+            saveBtn.addEventListener("click", async () => {
+              const namesToAdd = [];
+              const namesToRemove = [];
+              allSelectableNames.forEach((name) => {
+                const before = initialSelectedNames.has(name);
+                const after = workingSelectedNames.has(name);
+                if (!before && after) {
+                  namesToAdd.push(name);
+                } else if (before && !after) {
+                  namesToRemove.push(name);
+                }
+              });
+              if (!namesToAdd.length && !namesToRemove.length) {
+                picker.remove();
+                return;
+              }
+              setLoading(true, "신청자 변경사항을 저장하는 중...");
+              try {
+                const res = await apiRequest("saveVolunteerByAdmin", {
+                  date: selectedDay.isoDate,
+                  slot: slotName,
+                  addNames: JSON.stringify(namesToAdd),
+                  removeNames: JSON.stringify(namesToRemove)
+                });
+                if (!res || res.success === false) {
+                  alert((res && res.message) || "신청자 변경 저장 중 오류가 발생했습니다.");
+                  return;
+                }
+                state.volunteerWeeks = res.weeks || [];
+                ensureVolunteerSelection();
+                renderVolunteerOverlay();
+              } finally { setLoading(false); }
+            });
+            const closeBtn = document.createElement("button");
+            closeBtn.type = "button";
+            closeBtn.className = "volunteer-admin-add-close";
+            closeBtn.textContent = "닫기";
+            closeBtn.addEventListener("click", () => {
+              picker.remove();
+            });
+            const actionRow = document.createElement("div");
+            actionRow.className = "volunteer-admin-add-actions";
+            actionRow.appendChild(saveBtn);
+            actionRow.appendChild(closeBtn);
+            picker.appendChild(actionRow);
+            section.appendChild(picker);
+          });
+          section.appendChild(addBtn);
+        }
+        selectedCard.appendChild(section);
+      });
+    } else {
+      const none = document.createElement("div");
+      none.className = "volunteer-selected-date";
+      none.textContent = "날짜를 선택해 주세요";
+      selectedCard.appendChild(none);
+    }
+    grid.appendChild(selectedCard);
+    mainBox.appendChild(grid);
+  }
+
+  if (isAdmin) {
+    const adminBox = document.createElement("div");
+    adminBox.className = "volunteer-admin";
+    const title = document.createElement("div");
+    title.textContent = "관리자 메뉴";
+    adminBox.appendChild(title);
+    const weekRow = document.createElement("div");
+    weekRow.className = "volunteer-admin-row";
+    const weekLabel = document.createElement("span");
+    weekLabel.className = "volunteer-admin-label";
+    weekLabel.textContent = "주 선택";
+    weekRow.appendChild(weekLabel);
+    const weekSelect = document.createElement("select");
+    const sortedWeeks = (weeks || []).slice().sort((a, b) => {
+      const aISO = a.weekStartISO || "";
+      const bISO = b.weekStartISO || "";
+      return aISO.localeCompare(bISO);
+    });
+    sortedWeeks.forEach((w) => {
+      const opt = document.createElement("option");
+      const ds = w.days || [];
+      let label = "";
+      if (ds.length) {
+        const first = ds[0];
+        const last = ds[ds.length - 1];
+        label =
+          `${formatVolunteerDateText(first.dateText || first.isoDate)} ~ ` +
+          `${formatVolunteerDateText(last.dateText || last.isoDate)}`;
+      } else {
+        label = formatVolunteerDateText(
+          w.weekStartText || w.weekStartISO || ""
+        );
+      }
+      opt.value = w.weekStartText || "";
+      opt.textContent = label;
+      if (
+        String(w.weekStartText || "") ===
+        String(state.selectedVolunteerWeekStart || "")
+      ) {
+        opt.selected = true;
+      }
+      weekSelect.appendChild(opt);
+    });
+    weekSelect.addEventListener("change", () => {
+      const value = weekSelect.value;
+      state.selectedVolunteerWeekStart = value;
+      const target =
+        days.find((d) => String(d.weekStartText || "") === String(value)) ||
+        null;
+      if (target) {
+        state.selectedVolunteerDate = target.isoDate || "";
+      }
+      renderVolunteerOverlay();
+    });
+    weekRow.appendChild(weekSelect);
+    adminBox.appendChild(weekRow);
+    const row1 = document.createElement("div");
+    row1.className = "volunteer-admin-row";
+    const dateLabel = document.createElement("span");
+    dateLabel.className = "volunteer-admin-label";
+    dateLabel.textContent = "주 시작";
+    row1.appendChild(dateLabel);
+    const dateInput = document.createElement("input");
+    dateInput.type = "date";
+   dateInput.id = "volunteer-week-start";
+   dateInput.name = "volunteer-week-start";
+    let baseISO =
+      (selectedWeek && selectedWeek.weekStartISO) ||
+      (selectedDay && selectedDay.isoDate) ||
+      todayISO();
+    try {
+      const d = new Date(baseISO);
+      if (!Number.isNaN(d.getTime())) {
+        const day = (d.getDay() + 6) % 7;
+        d.setDate(d.getDate() - day);
+        baseISO = d.toISOString().slice(0, 10);
+      }
+    } catch (e) {}
+    dateInput.value = baseISO;
+    row1.appendChild(dateInput);
+    adminBox.appendChild(row1);
+    const row2 = document.createElement("div");
+    row2.className = "volunteer-admin-row";
+    const dayButtonsContainer = document.createElement("div");
+    dayButtonsContainer.className = "volunteer-day-grid-admin";
+    const weekdayNames = ["월", "화", "수", "목", "금", "토", "일"];
+    
+    // slotsConfig holds { [dayIndex]: { am: boolean, pm: boolean } }
+    const slotsConfig = {};
+    for (let i = 1; i <= 7; i++) {
+      slotsConfig[i] = { am: false, pm: false };
+    }
+
+    const weekByISO =
+      weeks.find((w) => String(w.weekStartISO || "") === String(baseISO)) ||
+      null;
+    if (weekByISO && (weekByISO.days || []).length) {
+      try {
+        const baseDate = new Date(baseISO);
+        const ms = 24 * 60 * 60 * 1000;
+        weekByISO.days.forEach((d) => {
+          const dd = new Date(d.isoDate);
+          if (Number.isNaN(dd.getTime())) {
+            return;
+          }
+          const diff = Math.round((dd.getTime() - baseDate.getTime()) / ms);
+          const idx = diff + 1;
+          if (idx >= 1 && idx <= 7) {
+            slotsConfig[idx] = {
+              am: d.slotAMEnabled !== false,
+              pm: d.slotPMEnabled === true
+            };
+          }
+        });
+      } catch (e) {}
+    }
+
+    for (let i = 1; i <= 7; i++) {
+      const col = document.createElement("div");
+      col.className = "volunteer-admin-day-col";
+      
+      const label = document.createElement("div");
+      label.className = "volunteer-admin-day-label";
+      label.textContent = weekdayNames[i - 1];
+      col.appendChild(label);
+
+      const amBtn = document.createElement("button");
+      amBtn.type = "button";
+      amBtn.className = "volunteer-slot-toggle-btn";
+      amBtn.classList.add("slot-am");
+      amBtn.textContent = "오전";
+      if (slotsConfig[i].am) amBtn.classList.add("active");
+      amBtn.addEventListener("click", () => {
+        slotsConfig[i].am = !slotsConfig[i].am;
+        amBtn.classList.toggle("active");
+      });
+      col.appendChild(amBtn);
+
+      const pmBtn = document.createElement("button");
+      pmBtn.type = "button";
+      pmBtn.className = "volunteer-slot-toggle-btn";
+      pmBtn.classList.add("slot-pm");
+      pmBtn.textContent = "오후";
+      if (slotsConfig[i].pm) pmBtn.classList.add("active");
+      pmBtn.addEventListener("click", () => {
+        slotsConfig[i].pm = !slotsConfig[i].pm;
+        pmBtn.classList.toggle("active");
+      });
+      col.appendChild(pmBtn);
+
+      dayButtonsContainer.appendChild(col);
+    }
+    row2.appendChild(dayButtonsContainer);
+    adminBox.appendChild(row2);
+
+    const row3 = document.createElement("div");
+    row3.className = "volunteer-admin-row volunteer-admin-row-center";
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.textContent = "주간/요일 저장";
+    saveBtn.addEventListener("click", async () => {
+      const startDate = dateInput.value;
+      if (!startDate) {
+        alert("주 시작일을 선택해 주세요.");
+        return;
+      }
+      
+      const activeSlots = {};
+      let hasAny = false;
+      for (let i = 1; i <= 7; i++) {
+        if (slotsConfig[i].am || slotsConfig[i].pm) {
+          activeSlots[i] = slotsConfig[i];
+          hasAny = true;
+        }
+      }
+
+      if (!hasAny) {
+        alert("봉사 가능한 요일과 시간대를 한 개 이상 선택해 주세요.");
+        return;
+      }
+
+      setLoading(true, "봉사 가능 요일을 저장하는 중...");
+      try {
+        const res = await apiRequest("setVolunteerWeek", {
+          startDate,
+          slots: JSON.stringify(activeSlots)
+        });
+        if (!res || res.success === false) {
+          if (res && res.message) {
+            alert(res.message);
+          } else {
+            alert("봉사 가능 요일 저장에 실패했습니다.");
+          }
+          return;
+        }
+        state.volunteerWeeks = res.weeks || [];
+        ensureVolunteerSelection();
+        renderVolunteerOverlay();
+      } finally {
+        setLoading(false);
+      }
+    });
+    row3.appendChild(saveBtn);
+    adminBox.appendChild(row3);
+    if (selectedDay && selectedDay.isoDate) {
+      const memoSlots = getAvailableVolunteerSlots(selectedDay);
+      memoSlots.forEach((slotName) => {
+        const memoBox = document.createElement("div");
+        memoBox.className = "volunteer-admin";
+        const memoRow = document.createElement("div");
+        memoRow.className = "volunteer-admin-row";
+        const slotLabel = document.createElement("span");
+        slotLabel.className = "volunteer-admin-label";
+        slotLabel.textContent = `${slotName} 메모`;
+        memoRow.appendChild(slotLabel);
+        memoBox.appendChild(memoRow);
+        const fixedRow = document.createElement("div");
+        fixedRow.className = "volunteer-admin-row";
+        const fixedLabel = document.createElement("span");
+        fixedLabel.className = "volunteer-admin-label";
+        fixedLabel.textContent = "요일 메모";
+        fixedRow.appendChild(fixedLabel);
+        const fixedMemoInput = document.createElement("input");
+        fixedMemoInput.type = "text";
+        fixedMemoInput.placeholder = `${selectedDay.weekday || ""} 공통 메모`;
+        fixedMemoInput.value = String(slotName === "오후" ? selectedDay.fixedMemoPM || "" : selectedDay.fixedMemoAM || "");
+        fixedRow.appendChild(fixedMemoInput);
+        memoBox.appendChild(fixedRow);
+        const extraRow = document.createElement("div");
+        extraRow.className = "volunteer-admin-row";
+        const extraLabel = document.createElement("span");
+        extraLabel.className = "volunteer-admin-label";
+        extraLabel.textContent = "날짜 메모";
+        extraRow.appendChild(extraLabel);
+        const extraMemoInput = document.createElement("input");
+        extraMemoInput.type = "text";
+        extraMemoInput.placeholder = `${slotName} 추가 메모`;
+        extraMemoInput.value = String(slotName === "오후" ? selectedDay.extraMemoPM || "" : selectedDay.extraMemoAM || "");
+        extraRow.appendChild(extraMemoInput);
+        memoBox.appendChild(extraRow);
+        const actionRow = document.createElement("div");
+        actionRow.className = "volunteer-admin-row volunteer-admin-row-center";
+        const memoSaveBtn = document.createElement("button");
+        memoSaveBtn.type = "button";
+        memoSaveBtn.textContent = "저장";
+        memoSaveBtn.addEventListener("click", async () => {
+          setLoading(true, "메모를 저장하는 중...");
+          try {
+            const res = await apiRequest("setVolunteerMemo", {
+              date: selectedDay.isoDate || "",
+              weekday: selectedDay.weekday || "",
+              slot: slotName,
+              fixedMemo: fixedMemoInput.value || "",
+              extraMemo: extraMemoInput.value || ""
+            });
+            if (!res || res.success === false) {
+              alert((res && res.message) || "메모 저장 중 오류가 발생했습니다.");
+              return;
+            }
+            state.volunteerWeeks = res.weeks || [];
+            ensureVolunteerSelection();
+            renderVolunteerOverlay();
+          } finally {
+            setLoading(false);
+          }
+        });
+        actionRow.appendChild(memoSaveBtn);
+        memoBox.appendChild(actionRow);
+        adminBox.appendChild(memoBox);
+      });
+    }
+    if (selectedWeek && (selectedWeek.days || []).length) {
+      const statsTitle = document.createElement("div");
+      statsTitle.textContent = "선택 주간 신청 현황";
+      adminBox.appendChild(statsTitle);
+      const table = document.createElement("table");
+      table.className = "volunteer-admin-table";
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      ["날짜", "요일", "오전", "오후"].forEach((text) => {
+        const th = document.createElement("th");
+        th.textContent = text;
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      const sortedDays = selectedWeek.days.slice().sort((a, b) => {
+        const aISO = a.isoDate || "";
+        const bISO = b.isoDate || "";
+        return aISO.localeCompare(bISO);
+      });
+      sortedDays.forEach((d) => {
+        const tr = document.createElement("tr");
+        const tdDate = document.createElement("td");
+        tdDate.textContent = formatVolunteerDateText(d.dateText || d.isoDate);
+        tr.appendChild(tdDate);
+        const tdWeekday = document.createElement("td");
+        tdWeekday.textContent = d.weekday || "";
+        tr.appendChild(tdWeekday);
+        
+        const entries = d.participantEntries || [];
+        const amNames = entries.filter(e => (e.slot || "오전") === "오전").map(e => e.name);
+        const pmNames = entries.filter(e => e.slot === "오후").map(e => e.name);
+        
+        const tdAM = document.createElement("td");
+        tdAM.textContent = amNames.join(", ");
+        tr.appendChild(tdAM);
+        
+        const tdPM = document.createElement("td");
+        tdPM.textContent = pmNames.join(", ");
+        tr.appendChild(tdPM);
+        
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      adminBox.appendChild(table);
+    }
+    layout.appendChild(adminBox);
+  }
+  body.appendChild(layout);
+};
+
+const openVolunteerOverlay = async () => {
+  if (!elements.volunteerOverlay || !elements.volunteerBody) {
+    return;
+  }
+  await loadVolunteerConfig();
+  elements.volunteerOverlay.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  renderVolunteerOverlay();
 };
 
 const groupCardsByArea = () => {
@@ -1297,6 +2515,16 @@ const getFirstInProgressArea = () => {
     }
   }
   return null;
+};
+
+const collapseExpandedArea = () => {
+  state.expandedAreaId = null;
+  state.selectedArea = null;
+  state.filterArea = "all";
+  state.scrollAreaToTop = false;
+  if (elements.filterArea) {
+    elements.filterArea.value = "all";
+  }
 };
 
 const renderAreas = () => {
@@ -1427,94 +2655,96 @@ const renderAreas = () => {
       const rightBox = document.createElement("div");
       rightBox.className = "area-header-right";
       let badge = null;
-      let finishTimer = null;
-      const clearFinishTimer = () => {
-        if (finishTimer) {
-          clearTimeout(finishTimer);
-          finishTimer = null;
-        }
-      };
-      const startFinishTimer = () => {
-        if (!(withAssignButton && isLeader && inProgress)) {
-          return;
-        }
-        clearFinishTimer();
-        finishTimer = setTimeout(async () => {
-          finishTimer = null;
-          if (
-            !window.confirm(
-              `구역 ${areaId}의 미방문 카드를 모두 오늘 날짜의 부재로 기록하고 봉사를 완료할까요?`
-            )
-          ) {
-            return;
-          }
-          setLoading(true, "봉사를 완료 처리하는 중...");
-          try {
-            const res = await apiRequest("finishAreaWithoutVisits", {
-              areaId,
-              leaderName: state.user ? state.user.name : ""
-            });
-            if (!res.success) {
-              alert(
-                res.message || "봉사 완료 처리 중 오류가 발생했습니다."
-              );
-              return;
-            }
-            await loadData();
-            renderAreas();
-            renderCards();
-            renderAdminPanel();
-            renderMyCarInfo();
-            setStatus(`구역 ${areaId}의 봉사가 완료 처리되었습니다.`);
-          } finally {
-            setLoading(false);
-          }
-        }, 800);
-      };
       if (inProgress) {
         badge = document.createElement("span");
         badge.className = "status-badge status-badge-progress";
         badge.textContent = "진행중";
         item.classList.add("area-in-progress");
         if (withAssignButton && isLeader) {
+          let badgeSwipeStartX = null;
+          let badgeSwipeStartY = null;
+          let isBadgeSwiping = false;
+
           badge.addEventListener("mousedown", (event) => {
             if (event.button !== 0) {
               return;
             }
             event.stopPropagation();
-            startFinishTimer();
+            badgeSwipeStartX = event.clientX;
+            badgeSwipeStartY = event.clientY;
+            isBadgeSwiping = false;
           });
           badge.addEventListener("touchstart", (event) => {
             event.stopPropagation();
-            startFinishTimer();
+            badgeSwipeStartX = event.touches[0].clientX;
+            badgeSwipeStartY = event.touches[0].clientY;
+            isBadgeSwiping = false;
           });
-          ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(
-            (type) => {
-              badge.addEventListener(type, clearFinishTimer);
+          badge.addEventListener("mousemove", (event) => {
+            if (badgeSwipeStartX === null) return;
+            const diffX = event.clientX - badgeSwipeStartX;
+            const diffY = event.clientY - badgeSwipeStartY;
+            if (Math.abs(diffX) > 10 && Math.abs(diffX) > Math.abs(diffY)) {
+              isBadgeSwiping = true;
             }
-          );
+          });
+          badge.addEventListener("touchmove", (event) => {
+            if (badgeSwipeStartX === null) return;
+            const diffX = event.touches[0].clientX - badgeSwipeStartX;
+            const diffY = event.touches[0].clientY - badgeSwipeStartY;
+            if (Math.abs(diffX) > 10 && Math.abs(diffX) > Math.abs(diffY)) {
+              isBadgeSwiping = true;
+            }
+          });
+          badge.addEventListener("mouseup", async (event) => {
+            if (badgeSwipeStartX === null) return;
+            const diffX = event.clientX - badgeSwipeStartX;
+            const isSwipe = isBadgeSwiping && Math.abs(diffX) > 50;
+            badgeSwipeStartX = null;
+            badgeSwipeStartY = null;
+            isBadgeSwiping = false;
+            if (isSwipe) {
+              if (window.confirm(`구역 ${areaId}의 봉사 시작을 취소할까요?`)) {
+                await cancelServiceForArea(areaId);
+              }
+            }
+          });
+          badge.addEventListener("touchend", async (event) => {
+            if (badgeSwipeStartX === null) return;
+            const diffX = event.changedTouches[0].clientX - badgeSwipeStartX;
+            const isSwipe = isBadgeSwiping && Math.abs(diffX) > 50;
+            badgeSwipeStartX = null;
+            badgeSwipeStartY = null;
+            isBadgeSwiping = false;
+            if (isSwipe) {
+              if (window.confirm(`구역 ${areaId}의 봉사 시작을 취소할까요?`)) {
+                await cancelServiceForArea(areaId);
+              }
+            }
+          });
+          ["mouseleave", "touchcancel"].forEach((type) => {
+            badge.addEventListener(type, () => {
+              badgeSwipeStartX = null;
+              badgeSwipeStartY = null;
+              isBadgeSwiping = false;
+            });
+          });
+
           headerRow.addEventListener("mousedown", (event) => {
             if (event.button !== 0) {
               return;
             }
-            if (event.target.closest(".area-header-right")) {
+            if (event.target.closest(".area-header-right") || event.target.closest(".status-badge-progress")) {
               return;
             }
             event.stopPropagation();
-            startFinishTimer();
           });
           headerRow.addEventListener("touchstart", (event) => {
-            if (event.target.closest(".area-header-right")) {
+            if (event.target.closest(".area-header-right") || event.target.closest(".status-badge-progress")) {
               return;
             }
             event.stopPropagation();
-            startFinishTimer();
           });
-          ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(
-            (type) => {
-              headerRow.addEventListener(type, clearFinishTimer);
-            }
-          );
         }
       }
       if (isInviteArea) {
@@ -1539,8 +2769,47 @@ const renderAreas = () => {
       if (
         withAssignButton &&
         isLeader &&
-        ((inProgress && !isKsl) || isKsl)
+        ((inProgress && !isKsl) || isKsl) &&
+        String(state.expandedAreaId) === String(areaId)
       ) {
+        const areaCards = (state.data.cards || []).filter(
+          (c) =>
+            String(c["구역번호"] || "") === String(areaId) &&
+            !isTrueValue(c["6개월"]) &&
+            !isTrueValue(c["방문금지"]) &&
+            !isTrueValue(c["재방"]) &&
+            !isTrueValue(c["연구"])
+        );
+        const areaCardNumbers = areaCards.map((c) => String(c["카드번호"] || ""));
+        
+        const bulkCheck = document.createElement("input");
+        bulkCheck.type = "checkbox";
+        bulkCheck.className = "area-bulk-check";
+        bulkCheck.title = "구역 전체 선택";
+        
+        const selectedForArea = areaCardNumbers.filter(cn => (state.selectedCards || []).includes(cn));
+        bulkCheck.checked = areaCardNumbers.length > 0 && selectedForArea.length === areaCardNumbers.length;
+        bulkCheck.indeterminate = selectedForArea.length > 0 && selectedForArea.length < areaCardNumbers.length;
+
+        ["click", "mousedown", "touchstart"].forEach(type => {
+          bulkCheck.addEventListener(type, (e) => {
+            e.stopPropagation();
+          });
+        });
+        bulkCheck.addEventListener("change", (e) => {
+          e.stopPropagation();
+          const set = new Set(state.selectedCards || []);
+          if (e.target.checked) {
+            areaCardNumbers.forEach(cn => set.add(cn));
+          } else {
+            areaCardNumbers.forEach(cn => set.delete(cn));
+          }
+          state.selectedCards = Array.from(set);
+          renderAreas();
+          renderCards(); 
+        });
+        rightBox.appendChild(bulkCheck);
+
         const assignBtn = document.createElement("button");
         assignBtn.type = "button";
         assignBtn.textContent = "차량 배정";
@@ -1558,10 +2827,11 @@ const renderAreas = () => {
           assignPressTimer = setTimeout(() => {
             assignPressTimer = null;
             assignLongPress = true;
+              const targetAssignDate = state.carAssignDate || todayISO();
             const selectedCards = (state.selectedCards || []).filter(
               (card) =>
                 String(card["구역번호"] || "") === String(areaId) &&
-                String(card["차량"] || "")
+                  getCardAssignedCarIdForDate(card, targetAssignDate)
             );
             if (!selectedCards.length) {
               alert(
@@ -1585,6 +2855,7 @@ const renderAreas = () => {
                   String(card["카드번호"] || "") === cn
                 ) {
                   card["차량"] = "";
+                  card["배정날짜"] = "";
                 }
               });
             });
@@ -1646,6 +2917,9 @@ const renderAreas = () => {
         startBtn.className = "start-service-btn";
         startBtn.addEventListener("click", (event) => {
           event.stopPropagation();
+          if (!window.confirm(`${areaId} 봉사를 시작할까요?`)) {
+            return;
+          }
           state.expandedAreaId = areaId;
           state.filterArea = areaId;
           elements.filterArea.value = areaId;
@@ -1668,7 +2942,11 @@ const renderAreas = () => {
           event.target.closest("#card-list") ||
           event.target.closest(".card") ||
           event.target.closest(".card-history") ||
-          event.target.closest("#visit-form")
+          event.target.closest("#visit-form") ||
+          event.target.closest(".area-bulk-check") ||
+          event.target.closest(".status-badge-progress") ||
+          event.target.closest(".assign-cards-btn") ||
+          event.target.closest(".start-service-btn")
         ) {
           return;
         }
@@ -1983,7 +3261,7 @@ const renderCards = () => {
     assignBox.className = "card-assign-box";
     const label = document.createElement("label");
     label.className = "card-assign-label";
-    const carId = String(card["차량"] || "");
+    const carId = getCardAssignedCarIdForDate(card, todayISO());
     if (carId) {
       const rows = state.data.assignments || [];
       const sameCar = rows.filter(
@@ -2181,7 +3459,7 @@ const renderCards = () => {
                     String(r["이름"] || "") === String(currentUser.name || "")
                 ) || null;
               const myCarId = myRow ? String(myRow["차량"] || "") : "";
-              const cardCarId = String(card["차량"] || "");
+              const cardCarId = getCardAssignedCarIdForDate(card, todayISO());
               if (!myCarId) {
                 alert("오늘 봉사 중인 차량 정보가 없습니다.");
                 return;
@@ -2476,9 +3754,25 @@ const startServiceForArea = async (areaId) => {
   } finally {
     setLoading(false);
   }
-};
+  };
 
-const renderAdminPanel = () => {
+  const cancelServiceForArea = async (areaId) => {
+    if (!areaId) return;
+    setLoading(true, "봉사 취소 중...");
+    try {
+      await apiRequest("cancelService", { areaId });
+      setStatus("봉사 시작이 취소되었습니다.");
+      await loadData();
+      renderAreas();
+      renderAdminPanel();
+      renderCards();
+      renderMyCarInfo();
+    } finally {
+      setLoading(false);
+    }
+  };
+  const renderAdminPanel = () => {
+
   if (!state.user) {
     elements.adminPanel.classList.add("hidden");
     return;
@@ -3421,6 +4715,7 @@ const loadData = async () => {
     state.data.visits = data.visits || [];
     state.data.evangelists = data.evangelists || [];
     state.data.assignments = data.assignments || [];
+    state.data.assignments = sanitizeAssignmentRows(state.data.assignments);
     state.inviteCampaign = data.inviteCampaign || null;
     state.data.deletedCards = data.deletedCards || [];
   } finally {
@@ -3430,8 +4725,9 @@ const loadData = async () => {
 
 const updateMenuVisibility = () => {
   if (!state.user) return;
-  const isAdmin = state.user.role === "관리자";
-  const isLeader = state.user.role === "인도자";
+  const userRole = String(state.user.role || "").trim();
+  const isAdmin = userRole === "관리자";
+  const isLeader = userRole === "인도자";
   
   document.querySelectorAll(".admin-only").forEach(el => {
     el.classList.toggle("hidden", !isAdmin);
@@ -3445,11 +4741,7 @@ const updateMenuVisibility = () => {
 const enterDashboard = async (user) => {
   state.user = user;
   elements.userInfo.textContent = `${state.user.name} (${state.user.role})`;
-  if (state.user.role === "관리자" || state.user.role === "인도자") {
-    elements.menuToggle.style.display = "inline-block";
-  } else {
-    elements.menuToggle.style.display = "none";
-  }
+  elements.menuToggle.style.display = "inline-block";
   updateMenuVisibility();
   elements.loginPanel.classList.add("hidden");
   elements.dashboard.classList.remove("hidden");
@@ -3465,6 +4757,8 @@ const enterDashboard = async (user) => {
   }
   renderAreas();
   renderCards();
+  state.carAssignDate = todayISO();
+  state.carAssignSlot = "오전";
   ensureAssignmentState();
   renderAdminPanel();
   renderMyCarInfo();
@@ -3622,6 +4916,9 @@ const saveVisit = async (event) => {
       return;
     }
     await loadData();
+    if (!isEdit && res.complete) {
+      collapseExpandedArea();
+    }
     renderAreas();
     renderCards();
     renderAdminPanel();
@@ -3967,8 +5264,9 @@ elements.carAssignEvangelistList.addEventListener("click", (event) => {
     if (!name) {
       return;
     }
-    if (!state.participantsToday.includes(name)) {
-      state.participantsToday.push(name);
+    const normalizedName = normalizeAssignmentName(name);
+    if (!state.participantsToday.includes(normalizedName)) {
+      state.participantsToday.push(normalizedName);
     }
     renderSelectedParticipants();
     renderCarAssignmentsPanel();
@@ -3992,7 +5290,7 @@ elements.carAssignEvangelistList.addEventListener("click", (event) => {
     }
     return;
   }
-  const name = item.dataset.name || "";
+  const name = normalizeAssignmentName(item.dataset.name || "");
   if (!name) {
     return;
   }
@@ -4002,7 +5300,9 @@ elements.carAssignEvangelistList.addEventListener("click", (event) => {
     item.classList.remove("selected");
     const cars = state.carAssignments || [];
     cars.forEach((car) => {
-      car.members = (car.members || []).filter((n) => n !== name);
+      car.members = (car.members || []).filter(
+        (n) => normalizeAssignmentName(n) !== name
+      );
     });
     state.carAssignments = cars;
   } else {
@@ -4072,7 +5372,7 @@ elements.carAssignPanel.addEventListener("drop", (event) => {
   } catch (e) {
     return;
   }
-  const name = parsed.name;
+  const name = normalizeAssignmentName(parsed.name);
   const fromCarId = parsed.carId;
   const toCarId = zone.dataset.carId || "";
   if (!name || !fromCarId || !toCarId) {
@@ -4088,11 +5388,17 @@ elements.carAssignPanel.addEventListener("drop", (event) => {
     const rest = (fromCar.members || []).filter((n) => n !== name);
     fromCar.members = [name].concat(rest);
   } else {
-    fromCar.members = (fromCar.members || []).filter((n) => n !== name);
+    fromCar.members = (fromCar.members || []).filter(
+      (n) => normalizeAssignmentName(n) !== name
+    );
     if (!toCar.members) {
       toCar.members = [];
     }
-    if (!toCar.members.includes(name)) {
+    if (
+      !(toCar.members || []).some(
+        (member) => normalizeAssignmentName(member) === name
+      )
+    ) {
       toCar.members.push(name);
     }
   }
@@ -4198,6 +5504,7 @@ elements.carAssignPanel.addEventListener("click", async (event) => {
     if (!moveList.length || !toCarId) {
       return;
     }
+    const assignDate = toAssignmentDateText(state.carAssignDate || todayISO());
     const allCards = state.data.cards || [];
     moveList.forEach((item) => {
       if (!item.areaId || !item.cardNumber) return;
@@ -4207,6 +5514,7 @@ elements.carAssignPanel.addEventListener("click", async (event) => {
           String(card["카드번호"] || "") === String(item.cardNumber)
         ) {
           card["차량"] = String(toCarId);
+          card["배정날짜"] = assignDate;
         }
       });
     });
@@ -4251,6 +5559,7 @@ elements.carAssignPanel.addEventListener("click", async (event) => {
     if (!moveList.length || !toCarId) {
       return;
     }
+    const assignDate = toAssignmentDateText(state.carAssignDate || todayISO());
     const allCards = state.data.cards || [];
     moveList.forEach((item) => {
       if (!item.areaId || !item.cardNumber) return;
@@ -4260,6 +5569,7 @@ elements.carAssignPanel.addEventListener("click", async (event) => {
           String(card["카드번호"] || "") === String(item.cardNumber)
         ) {
           card["차량"] = String(toCarId);
+          card["배정날짜"] = assignDate;
         }
       });
     });
@@ -4377,8 +5687,12 @@ elements.sideMenu.addEventListener("click", (event) => {
     return;
   }
   
-  if ((key === "car-assign" || key === "visits") && !isAdmin && !isLeader) {
+  if (key === "car-assign" && !isAdmin && !isLeader) {
     alert("관리자 또는 인도자만 사용할 수 있습니다.");
+    return;
+  }
+  if (key === "visits" && !isAdmin) {
+    alert("관리자만 사용할 수 있습니다.");
     return;
   }
   
@@ -4398,6 +5712,8 @@ elements.sideMenu.addEventListener("click", (event) => {
       renderVisitsView();
       renderAdminPanel();
     }
+  } else if (key === "volunteer") {
+    openVolunteerOverlay();
   } else if (
     key === "admin-cards" ||
     key === "admin-ev" ||
@@ -4410,10 +5726,15 @@ elements.sideMenu.addEventListener("click", (event) => {
     }
     renderAdminPanel();
   } else if (key === "car-assign") {
-    resetCarAssignmentsFromSaved();
     elements.carAssignOverlay.classList.remove("hidden");
     document.body.style.overflow = "hidden";
-    renderCarAssignPopup();
+    (async () => {
+      await loadVolunteerConfig();
+      const defaultDate = getNearestVolunteerDateISO(
+        state.carAssignDate || state.selectedVolunteerDate || todayISO()
+      );
+      await setCarAssignDate(defaultDate);
+    })();
   } else if (key === "invite-campaign") {
     if (elements.inviteOverlay) {
       elements.inviteOverlay.classList.remove("hidden");
@@ -4422,6 +5743,19 @@ elements.sideMenu.addEventListener("click", (event) => {
     }
   }
 });
+
+if (elements.closeVolunteer && elements.volunteerOverlay) {
+  elements.closeVolunteer.addEventListener("click", () => {
+    elements.volunteerOverlay.classList.add("hidden");
+    document.body.style.overflow = "";
+  });
+  elements.volunteerOverlay.addEventListener("click", (event) => {
+    if (event.target === elements.volunteerOverlay) {
+      elements.volunteerOverlay.classList.add("hidden");
+      document.body.style.overflow = "";
+    }
+  });
+}
 
 elements.closeCarAssign.addEventListener("click", () => {
   elements.carAssignOverlay.classList.add("hidden");
@@ -5035,11 +6369,15 @@ if (elements.carAssignAssignCards) {
       targetAreaIds = [input.trim()];
     }
     const allCards = state.data.cards || [];
+    const assignDate = toAssignmentDateText(state.carAssignDate || todayISO());
     const areaCardsList = targetAreaIds.map((areaId) => ({
       areaId,
       cards: allCards.filter((card) => {
         const area = String(card["구역번호"] || "");
-        const carId = String(card["차량"] || "");
+        const carId = getCardAssignedCarIdForDate(
+          card,
+          state.carAssignDate || todayISO()
+        );
         const isRevisit = isTrueValue(card["재방"]);
         const isStudy = isTrueValue(card["연구"]);
         const isSixMonths = isTrueValue(card["6개월"]);
@@ -5103,6 +6441,7 @@ if (elements.carAssignAssignCards) {
           continue;
         }
         card["차량"] = String(car.carId || "");
+        card["배정날짜"] = assignDate;
       }
     }
     renderAreas();
