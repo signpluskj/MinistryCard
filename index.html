@@ -41,6 +41,8 @@
             <li class="admin-only"><button type="button" data-menu="visits">완료 내역</button></li>
             <li class="admin-only"><button type="button" data-menu="admin-deleted">삭제 카드</button></li>
             <li class="admin-only"><button type="button" data-menu="invite-campaign">초대장 배부</button></li>
+            <li class="menu-separator super-admin-only"><span></span></li>
+            <li class="super-admin-only"><button type="button" data-menu="config">연결 설정</button></li>
           </ul>
         </div>
       </nav>
@@ -84,6 +86,7 @@
               </div>
               <div class="car-assign-right">
                 <div class="car-assign-top-controls">
+                  <div id="car-assign-today-display" class="volunteer-today-label"></div>
                   <div id="car-assign-day-list" class="weekday-scroll"></div>
                   <div id="car-assign-slot-list" class="car-assign-slot-row"></div>
                 </div>
@@ -163,9 +166,10 @@
             </div>
           </div>
         </div>
-        <section id="config-panel" class="panel hidden">
-          <div class="panel-header">
+        <section id="config-panel" class="panel hidden super-admin-only" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2000; width: 90%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #444;">
+          <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
             <h2>연결 설정</h2>
+            <button id="close-config" class="icon-button" type="button" style="font-size: 20px;">✕</button>
           </div>
           <div class="panel-body">
             <label class="field">
@@ -173,6 +177,11 @@
               <input id="api-url-input" type="text" placeholder="https://script.google.com/macros/s/..." />
             </label>
             <button id="save-api-url">저장</button>
+            <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px;">
+              <button id="sync-to-supabase" style="background-color: #10b981;">구글 시트 데이터를 Supabase로 동기화</button>
+              <button id="sync-to-sheets" style="background-color: #f59e0b; color: white;">Supabase 데이터를 구글 시트로 덮어쓰기</button>
+              <button id="backup-to-excel" style="background-color: #3b82f6;">Supabase 데이터 엑셀 백업 (.xlsx)</button>
+            </div>
           </div>
         </section>
         <section id="login-panel" class="panel">
@@ -273,6 +282,8 @@
       <span id="loading-text">데이터 불러오는 중...</span>
     </div>
     <script src="config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

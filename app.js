@@ -3,6 +3,17 @@ const DEFAULT_API_URL =
     window.__ENV__ &&
     window.__ENV__.API_URL) ||
   "https://script.google.com/macros/s/AKfycbx1O_Ab6n1j2py4A6Qck48fSY8N_J1wTiZF97y09HzW21kHgCinR1K2rCWiZmONG8mJ/exec";
+
+const SUPABASE_URL = (window.__ENV__ && window.__ENV__.SUPABASE_URL) || "";
+const SUPABASE_KEY = (window.__ENV__ && window.__ENV__.SUPABASE_KEY) || "";
+
+let supabaseClient = null;
+if (typeof window.supabase !== "undefined" && SUPABASE_URL && SUPABASE_KEY) {
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+} else if (typeof supabasejs !== "undefined" && SUPABASE_URL && SUPABASE_KEY) {
+  supabaseClient = supabasejs.createClient(SUPABASE_URL, SUPABASE_KEY);
+}
+
 const state = {
   apiUrl: DEFAULT_API_URL,
   user: null,
@@ -18,6 +29,7 @@ const state = {
   selectedArea: null,
   selectedCard: null,
   expandedAreaId: null,
+  isSuperAdmin: false,
   view: "cards",
   sortOrder: "number",
   searchQuery: "",
@@ -67,6 +79,9 @@ const elements = {
   loginButton: document.getElementById("login-button"),
   apiUrlInput: document.getElementById("api-url-input"),
   saveApiUrl: document.getElementById("save-api-url"),
+  closeConfig: document.getElementById("close-config"),
+  syncToSupabase: document.getElementById("sync-to-supabase"),
+  syncToSheets: document.getElementById("sync-to-sheets"),
   userInfo: document.getElementById("user-info"),
   carInfo: document.getElementById("car-info"),
   areaList: document.getElementById("area-list"),
@@ -100,6 +115,7 @@ const elements = {
   carAssignEvangelistList: document.getElementById("car-assign-evangelist-list"),
   carAssignSelected: document.getElementById("car-assign-selected"),
   carAssignMeta: document.getElementById("car-assign-meta"),
+  carAssignTodayDisplay: document.getElementById("car-assign-today-display"),
   carAssignDayList: document.getElementById("car-assign-day-list"),
   carAssignSlotList: document.getElementById("car-assign-slot-list"),
   carAssignAuto: document.getElementById("car-assign-auto"),
@@ -132,7 +148,8 @@ const elements = {
   inviteStart: document.getElementById("invite-start"),
   inviteStop: document.getElementById("invite-stop"),
   inviteRefresh: document.getElementById("invite-refresh"),
-  inviteStats: document.getElementById("invite-stats")
+  inviteStats: document.getElementById("invite-stats"),
+  backupToExcel: document.getElementById("backup-to-excel")
 };
 
 const openCarSelectPopup = (areaId, cardNumbers) => {
@@ -157,16 +174,27 @@ const openCarSelectPopup = (areaId, cardNumbers) => {
       const assignDate = state.carAssignDate || todayISO();
       setLoading(true, "카드 차량 배정 중...");
       try {
-        const res = await apiRequest("assignCardsToCars", {
-          areaId,
-          pairs: JSON.stringify(pairs),
-          assignDate
-        });
-        if (!res.success) {
-          alert(res.message || "카드 배정에 실패했습니다.");
-          return;
+        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+        
+        for (const pair of pairs) {
+          const { error: updateError } = await supabaseClient
+            .from("cards")
+            .update({ car_id: pair.carId, assignment_date: assignDate })
+            .eq("area_id", String(areaId))
+            .eq("card_number", String(pair.cardNumber));
+            
+          if (updateError) throw updateError;
+          
+          // 로컬 상태 즉시 업데이트
+          const localCard = state.data.cards.find(c => 
+            String(c["구역번호"]) === String(areaId) && String(c["카드번호"]) === String(pair.cardNumber)
+          );
+          if (localCard) {
+            localCard["차량"] = pair.carId;
+            localCard["배정날짜"] = assignDate;
+          }
         }
-        state.data.cards = res.cards || state.data.cards;
+        
         state.selectedCards = [];
         renderAreas();
         renderCards();
@@ -174,6 +202,9 @@ const openCarSelectPopup = (areaId, cardNumbers) => {
         renderMyCarInfo();
         setStatus("선택한 카드가 차량에 배정되었습니다.");
         elements.carSelectOverlay.classList.add("hidden");
+      } catch (err) {
+        console.error("Assign cards to cars error:", err);
+        alert("카드 배정에 실패했습니다: " + err.message);
       } finally {
         setLoading(false);
       }
@@ -841,91 +872,99 @@ const autoAssignCars = () => {
 };
 
 const saveCarAssignments = async () => {
+  if (!supabaseClient) return;
   const validCars =
     state.carAssignments.filter((car) => {
       const hasDriver = Boolean(car.driver);
       const hasMembers = (car.members || []).some((name) => Boolean(name));
       return hasDriver || hasMembers;
     }) || [];
-  const rows = [];
+
+  const currentDate = state.carAssignDate || todayISO();
+  const currentSlot = state.carAssignSlot || "오전";
+
+  const newAssignments = [];
   validCars.forEach((car) => {
-    const carId = car.carId;
-    const driver = car.driver;
-    const members = car.members || [];
-    if (driver) {
-      rows.push({ carId, name: normalizeAssignmentName(driver), role: "운전자" });
-    }
-    members.forEach((name) => {
-      if (!name || name === driver) {
-        return;
-      }
-      rows.push({ carId, name: normalizeAssignmentName(name), role: "탑승자" });
+    newAssignments.push({
+      date: currentDate,
+      slot: currentSlot,
+      car_id: String(car.carId),
+      driver: car.driver || "",
+      passengers: car.members || []
     });
   });
+
   setLoading(true, "차량 배정 저장 중...");
   try {
-    const res = await apiRequest("saveCarAssignments", {
-      assignments: JSON.stringify(rows),
-      date: state.carAssignDate || todayISO(),
-      slot: state.carAssignSlot || "오전"
-    });
-    if (!res.success) {
-      alert(res.message || "차량 배정 저장에 실패했습니다.");
-      return;
+    // 1. 기존 해당 날짜/시간대 배정 삭제
+    const { error: deleteError } = await supabaseClient
+      .from("car_assignments")
+      .delete()
+      .eq("date", currentDate)
+      .eq("slot", currentSlot);
+
+    if (deleteError) throw deleteError;
+
+    // 2. 새 배정 저장
+    if (newAssignments.length > 0) {
+      const { error: insertError } = await supabaseClient
+        .from("car_assignments")
+        .insert(newAssignments);
+      if (insertError) throw insertError;
     }
-    const savedRows = sanitizeAssignmentRows(res.assignments || []);
-    const currentDate = state.carAssignDate || todayISO();
-    const currentSlot = state.carAssignSlot || "오전";
-    const existingRows =
-      state.carAssignAssignmentsDate === currentDate
-        ? state.carAssignAssignmentsAll || []
-        : [];
-    const keptRows = existingRows.filter((row) => {
-      const rowSlot = String(row["시간대"] || "").trim() || "오전";
-      return rowSlot !== currentSlot;
-    });
+
+    // 3. 로컬 상태 업데이트를 위해 다시 로드
+    const { data: allAssignments, error: fetchError } = await supabaseClient
+      .from("car_assignments")
+      .select("*")
+      .eq("date", currentDate);
+
+    if (fetchError) throw fetchError;
+
     state.carAssignAssignmentsDate = currentDate;
-    state.carAssignAssignmentsAll = keptRows.concat(savedRows);
-    applyCarAssignDataForSlot(currentDate, currentSlot);
+    state.carAssignAssignmentsAll = (allAssignments || []).map(a => ({
+      "날짜": a.date,
+      "시간대": a.slot,
+      "차량": a.car_id,
+      "이름": a.driver,
+      "동승자": a.passengers || []
+    }));
 
+    // 4. 구역카드 차량 배정 정보 업데이트
     const cards = state.data.cards || [];
-    const assignDate = state.carAssignDate || todayISO();
-    const byArea = {};
+    const toUpdateCards = [];
     cards.forEach((card) => {
-      const areaId = String(card["구역번호"] || "");
-      const carId = getCardAssignedCarIdForDate(card, assignDate);
-      const cardNumber = String(card["카드번호"] || "");
-      if (!areaId || !carId || !cardNumber) {
-        return;
+      const carId = getCardAssignedCarIdForDate(card, currentDate);
+      if (carId) {
+        toUpdateCards.push({
+          area_id: String(card["구역번호"]),
+          card_number: String(card["카드번호"]),
+          car_id: String(carId),
+          assignment_date: currentDate
+        });
       }
-      if (!byArea[areaId]) {
-        byArea[areaId] = [];
-      }
-      byArea[areaId].push({ cardNumber, carId });
     });
-    const areaIds = Object.keys(byArea);
-    for (let i = 0; i < areaIds.length; i++) {
-      const areaId = areaIds[i];
-      const pairs = byArea[areaId];
-      if (!pairs.length) continue;
-      const resCards = await apiRequest("assignCardsToCars", {
-        areaId,
-        pairs: JSON.stringify(pairs),
-        assignDate
-      });
-      if (!resCards.success) {
-        alert(resCards.message || "구역카드 배정 저장에 실패했습니다.");
-        break;
+
+    if (toUpdateCards.length > 0) {
+      for (const cardData of toUpdateCards) {
+        await supabaseClient
+          .from("cards")
+          .update({ car_id: cardData.car_id, assignment_date: cardData.assignment_date })
+          .eq("area_id", cardData.area_id)
+          .eq("card_number", cardData.card_number);
       }
-      state.data.cards = resCards.cards || state.data.cards;
     }
 
+    applyCarAssignDataForSlot(currentDate, currentSlot);
     renderAreas();
     renderCards();
     renderAdminPanel();
     renderMyCarInfo();
     setStatus("차량 배정이 저장되었습니다.");
     renderCarAssignPopup();
+  } catch (err) {
+    console.error("Save car assignments error:", err);
+    alert("차량 배정 저장에 실패했습니다: " + err.message);
   } finally {
     setLoading(false);
   }
@@ -936,26 +975,32 @@ const resetCarAssignmentsOnServer = async () => {
   try {
     const targetDate = state.carAssignDate || state.selectedVolunteerDate || todayISO();
     const targetSlot = state.carAssignSlot || "오전";
-    const res = await apiRequest("resetCarAssignments", { date: targetDate });
-    if (!res.success) {
-      alert(res.message || "차량 배정 초기화에 실패했습니다.");
-      return;
-    }
-    state.data.assignments = res.assignments || [];
-    state.carAssignAssignmentsDate = "";
-    state.carAssignAssignmentsAll = [];
-    if (res.cards) {
-      state.data.cards = res.cards || state.data.cards;
-    }
-    state.participantsToday = [];
-    state.carAssignments = [];
-    renderAreas();
-    renderCards();
-    renderAdminPanel();
-    renderMyCarInfo();
-    await loadVolunteerConfig();
-    state.carAssignSlot = targetSlot;
-    await setCarAssignDate(targetDate);
+    
+    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+    
+    // 1. 해당 날짜/시간대의 차량 배정 삭제
+    const { error: deleteError } = await supabaseClient
+      .from("car_assignments")
+      .delete()
+      .eq("date", targetDate)
+      .eq("slot", targetSlot);
+      
+    if (deleteError) throw deleteError;
+    
+    // 2. 해당 날짜에 배정된 카드의 차량 정보 초기화
+    const { error: updateError } = await supabaseClient
+      .from("cards")
+      .update({ car_id: null, assignment_date: null })
+      .eq("assignment_date", targetDate);
+      
+    if (updateError) throw updateError;
+    
+    // 3. 데이터 다시 불러오기 및 UI 갱신
+    await refreshAll();
+    setStatus("차량 배정이 초기화되었습니다.");
+  } catch (err) {
+    console.error("Reset car assignments error:", err);
+    alert("차량 배정 초기화에 실패했습니다: " + err.message);
   } finally {
     setLoading(false);
   }
@@ -966,6 +1011,20 @@ const renderCarAssignDayRow = () => {
   if (!container) {
     return;
   }
+  
+  if (elements.carAssignTodayDisplay) {
+    const weekdayFullMap = {
+      월: "월요일", 화: "화요일", 수: "수요일", 목: "목요일",
+      금: "금요일", 토: "토요일", 일: "일요일"
+    };
+    const todayDate = new Date();
+    const todayYear = todayDate.getFullYear();
+    const todayMonth = todayDate.getMonth() + 1;
+    const todayDay = todayDate.getDate();
+    const todayWeekday = weekdayFullMap[["일", "월", "화", "수", "목", "금", "토"][todayDate.getDay()]] || "";
+    elements.carAssignTodayDisplay.innerHTML = `<div class="volunteer-today-text">오늘은</div><div class="volunteer-today-date">${todayYear}년 ${todayMonth}월 ${todayDay}일 ${todayWeekday}</div>`;
+  }
+
   container.innerHTML = "";
   const days = buildVolunteerDayList();
   const current = state.carAssignDate || todayISO();
@@ -980,6 +1039,8 @@ const renderCarAssignDayRow = () => {
     container.appendChild(btn);
     return;
   }
+  
+  let activeBtn = null;
   days.forEach((d) => {
     if (!d.isoDate) {
       return;
@@ -989,6 +1050,7 @@ const renderCarAssignDayRow = () => {
     btn.className = "weekday-chip";
     if (d.isoDate === current) {
       btn.classList.add("active");
+      activeBtn = btn;
     }
     const weekdayShortMap = {
       월: "월",
@@ -1012,6 +1074,12 @@ const renderCarAssignDayRow = () => {
     });
     container.appendChild(btn);
   });
+
+  if (activeBtn) {
+    requestAnimationFrame(() => {
+      activeBtn.scrollIntoView({ behavior: "auto", inline: "start", block: "nearest" });
+    });
+  }
 };
 
 const renderCarAssignSlotRow = () => {
@@ -1103,6 +1171,7 @@ const setCarAssignDate = async (isoDate) => {
   state.carAssignDate = date;
   setLoading(true, "차량 배정 정보를 불러오는 중...");
   try {
+    await loadVolunteerConfig();
     const days = buildVolunteerDayList();
     const day =
       days.find((d) => d.isoDate === date) || null;
@@ -1120,18 +1189,31 @@ const setCarAssignDate = async (isoDate) => {
       state.carAssignSlot = availableSlots[0];
     }
     const selectedSlot = state.carAssignSlot || "오전";
-    const res = await apiRequest("getCarAssignmentsByDate", { date });
-    if (!res || res.success === false) {
-      if (res && res.message) {
-        alert(res.message);
-      } else {
-        alert("차량 배정 정보를 불러오는 데 실패했습니다.");
-      }
-      return;
+
+    if (!supabaseClient) {
+      throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
     }
+
+    const { data: assignments, error } = await supabaseClient
+      .from("car_assignments")
+      .select("*")
+      .eq("date", date);
+
+    if (error) throw error;
+
     state.carAssignAssignmentsDate = date;
-    state.carAssignAssignmentsAll = sanitizeAssignmentRows(res.assignments || []);
+    state.carAssignAssignmentsAll = (assignments || []).map(a => ({
+      "날짜": a.date,
+      "시간대": a.slot,
+      "차량": a.car_id,
+      "이름": a.driver,
+      "동승자": a.passengers || []
+    }));
+    
     applyCarAssignDataForSlot(date, selectedSlot, day);
+  } catch (err) {
+    console.error("Failed to fetch car assignments:", err);
+    alert("차량 배정 정보를 불러오는 데 실패했습니다: " + err.message);
   } finally {
     setLoading(false);
   }
@@ -1171,22 +1253,35 @@ const renderCarAssignmentsPanel = () => {
       const cardNumber = window.prompt("배정할 카드번호를 입력해 주세요.");
       if (!cardNumber) return;
       setLoading(true, "카드 수동 배정 중...");
+      const assignDate = state.carAssignDate || todayISO();
       try {
-        const res = await apiRequest("assignCardsToCars", {
-          areaId,
-          pairs: JSON.stringify([{ cardNumber: String(cardNumber), carId: String(car.carId || "") }]),
-          assignDate: state.carAssignDate || todayISO()
-        });
-        if (!res.success) {
-          alert(res.message || "카드 배정에 실패했습니다.");
-          return;
+        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+        
+        const { error: updateError } = await supabaseClient
+          .from("cards")
+          .update({ car_id: String(car.carId || ""), assignment_date: assignDate })
+          .eq("area_id", String(areaId))
+          .eq("card_number", String(cardNumber));
+          
+        if (updateError) throw updateError;
+        
+        // 로컬 상태 즉시 업데이트
+        const localCard = state.data.cards.find(c => 
+          String(c["구역번호"]) === String(areaId) && String(c["카드번호"]) === String(cardNumber)
+        );
+        if (localCard) {
+          localCard["차량"] = String(car.carId || "");
+          localCard["배정날짜"] = assignDate;
         }
-        state.data.cards = res.cards || state.data.cards;
+
         renderAreas();
         renderCards();
         renderAdminPanel();
         renderMyCarInfo();
         setStatus(`카드 ${String(cardNumber)}가 차량 ${String(car.carId)}에 배정되었습니다.`);
+      } catch (err) {
+        console.error("Assign cards to cars error:", err);
+        alert("카드 배정에 실패했습니다: " + err.message);
       } finally {
         setLoading(false);
       }
@@ -1516,9 +1611,150 @@ const refreshAll = async () => {
   }
 };
 
+const saveVolunteerWeekToSupabase = async (weekStart, weekData) => {
+  if (!supabaseClient) return { success: false, message: "Supabase client not initialized" };
+  try {
+    // weekStart는 ISO 날짜 형식 (YYYY-MM-DD)
+    // weekData는 JSON 객체 (데이터 필드에 저장될 내용)
+    const { error } = await supabaseClient
+      .from("volunteer_weeks")
+      .upsert({
+        week_start: weekStart,
+        data: weekData
+      });
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    console.error("Failed to save volunteer week:", err);
+    return { success: false, message: err.message };
+  }
+};
+
+const updateCardFlagsInSupabase = async (areaId, cardNumber, flags) => {
+  if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+  
+  const payload = {};
+  if (flags.hasOwnProperty("revisit")) payload.revisit = flags.revisit;
+  if (flags.hasOwnProperty("study")) payload.study = flags.study;
+  if (flags.hasOwnProperty("sixMonths")) payload.six_months = flags.sixMonths;
+  if (flags.hasOwnProperty("banned")) payload.banned = flags.banned;
+  if (flags.hasOwnProperty("invite")) payload.invite = flags.invite;
+  
+  const { error } = await supabaseClient
+    .from("cards")
+    .update(payload)
+    .eq("area_id", String(areaId))
+    .eq("card_number", String(cardNumber));
+    
+  if (error) throw error;
+  return { success: true, ...flags };
+};
+
+const deleteCardInSupabase = async (areaId, cardNumber) => {
+  if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+  // 1. 기존 카드 정보 조회
+  const { data: card, error: selectError } = await supabaseClient
+    .from("cards")
+    .select("*")
+    .eq("area_id", String(areaId))
+    .eq("card_number", String(cardNumber))
+    .single();
+
+  if (selectError) {
+    console.warn("Card not found in Supabase or already deleted:", selectError);
+    // 이미 Supabase에 없어도 계속 진행할 수 있도록 무시하거나 에러 처리
+  }
+
+  if (card) {
+    // 2. 삭제된 카드 테이블로 이동 (보관)
+    const { error: insertError } = await supabaseClient
+      .from("deleted_cards")
+      .insert({
+        area_id: String(card.area_id),
+        card_number: String(card.card_number),
+        address: card.address,
+        deleted_at: new Date().toISOString()
+      });
+
+    if (insertError) {
+      console.error("Failed to archive deleted card:", insertError);
+      throw insertError;
+    }
+
+    // 3. 원본 테이블에서 삭제
+    const { error: deleteError } = await supabaseClient
+      .from("cards")
+      .delete()
+      .eq("area_id", String(areaId))
+      .eq("card_number", String(cardNumber));
+
+    if (deleteError) {
+      console.error("Failed to delete card from cards table:", deleteError);
+      throw deleteError;
+    }
+  }
+
+  return { success: true };
+};
+
+const restoreDeletedCardInSupabase = async (areaId, cardNumber) => {
+  if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+  // 1. 삭제된 카드 정보 조회
+  const { data: deletedCard, error: selectError } = await supabaseClient
+    .from("deleted_cards")
+    .select("*")
+    .eq("area_id", String(areaId))
+    .eq("card_number", String(cardNumber))
+    .single();
+
+  if (selectError) throw selectError;
+
+  if (deletedCard) {
+    // 2. cards 테이블로 복구 (기본 정보만)
+    const { error: insertError } = await supabaseClient
+      .from("cards")
+      .upsert({
+        area_id: String(deletedCard.area_id),
+        card_number: String(deletedCard.card_number),
+        address: deletedCard.address
+      }, { onConflict: "area_id, card_number" });
+
+    if (insertError) throw insertError;
+
+    // 3. deleted_cards 테이블에서 삭제
+    const { error: deleteError } = await supabaseClient
+      .from("deleted_cards")
+      .delete()
+      .eq("area_id", String(areaId))
+      .eq("card_number", String(cardNumber));
+
+    if (deleteError) throw deleteError;
+  }
+
+  return { success: true };
+};
+
+const purgeDeletedCardInSupabase = async (areaId, cardNumber) => {
+  if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+  const { error } = await supabaseClient
+    .from("deleted_cards")
+    .delete()
+    .eq("area_id", String(areaId))
+    .eq("card_number", String(cardNumber));
+
+  if (error) throw error;
+  return { success: true };
+};
+
 const apiRequest = async (action, payload = {}, method = "POST") => {
   if (!state.apiUrl) {
-    elements.configPanel.classList.remove("hidden");
+    if (state.isSuperAdmin) {
+      elements.configPanel.classList.remove("hidden");
+    }
     throw new Error("API URL이 설정되지 않았습니다.");
   }
   try {
@@ -1653,19 +1889,26 @@ const ensureVolunteerSelection = () => {
 };
 
 const loadVolunteerConfig = async () => {
-  setLoading(true, "봉사 신청 정보를 불러오는 중...");
+  if (!supabaseClient) return;
   try {
-    const res = await apiRequest("getVolunteerConfig", {});
-    if (!res || res.success === false) {
-      if (res && res.message) {
-        alert(res.message);
-      }
-      return;
+    const { data, error } = await supabaseClient
+      .from("volunteer_weeks")
+      .select("*")
+      .order("week_start", { ascending: true });
+
+    if (error) throw error;
+
+    if (data && data.length > 0) {
+      state.volunteerWeeks = data.map(row => ({
+        ...row.data,
+        weekStartText: row.week_start
+      }));
+    } else {
+      state.volunteerWeeks = [];
     }
-    state.volunteerWeeks = res.weeks || [];
     ensureVolunteerSelection();
-  } finally {
-    setLoading(false);
+  } catch (err) {
+    console.error("Failed to load volunteer config:", err);
   }
 };
 
@@ -1839,14 +2082,27 @@ const renderVolunteerOverlay = () => {
             if (!ok) return;
             setLoading(true, "날짜를 삭제하는 중...");
             try {
-              const res = await apiRequest("removeVolunteerDay", { date: d.isoDate || "" });
-              if (!res || res.success === false) {
-                alert((res && res.message) || "날짜 삭제 중 오류가 발생했습니다.");
-                return;
-              }
-              state.volunteerWeeks = res.weeks || [];
+              const weekStart = d.weekStartText || d.weekStartISO;
+              const { data: weekRow, error: fetchError } = await supabaseClient
+                .from("volunteer_weeks")
+                .select("data")
+                .eq("week_start", weekStart)
+                .single();
+                
+              if (fetchError) throw fetchError;
+              
+              const updatedData = { ...weekRow.data };
+              updatedData.days = (updatedData.days || []).filter(day => day.isoDate !== d.isoDate);
+              
+              const saveRes = await saveVolunteerWeekToSupabase(weekStart, updatedData);
+              if (!saveRes.success) throw new Error(saveRes.message);
+              
+              await loadVolunteerConfig();
               ensureVolunteerSelection();
               renderVolunteerOverlay();
+            } catch (err) {
+              console.error("Remove volunteer day error:", err);
+              alert("날짜 삭제에 실패했습니다: " + err.message);
             } finally {
               setLoading(false);
             }
@@ -1928,14 +2184,30 @@ const renderVolunteerOverlay = () => {
                 if (!ok) return;
                 setLoading(true, "신청자를 삭제하는 중...");
                 try {
-                  const res = await apiRequest("removeVolunteerByAdmin", { date: selectedDay.isoDate, name: entryName, slot: slotName });
-                  if (!res || res.success === false) {
-                    alert((res && res.message) || "신청자 삭제 중 오류가 발생했습니다.");
-                    return;
+                  const weekStart = selectedDay.weekStartText || selectedDay.weekStartISO;
+                  const { data: weekRow, error: fetchError } = await supabaseClient
+                    .from("volunteer_weeks")
+                    .select("data")
+                    .eq("week_start", weekStart)
+                    .single();
+                    
+                  if (fetchError) throw fetchError;
+                  
+                  const updatedData = { ...weekRow.data };
+                  const dayObj = (updatedData.days || []).find(d => d.isoDate === selectedDay.isoDate);
+                  if (dayObj && dayObj.participantEntries) {
+                    dayObj.participantEntries = dayObj.participantEntries.filter(e => !(String(e.name || "") === String(entryName) && (e.slot || "오전") === slotName));
                   }
-                  state.volunteerWeeks = res.weeks || [];
+                  
+                  const saveRes = await saveVolunteerWeekToSupabase(weekStart, updatedData);
+                  if (!saveRes.success) throw new Error(saveRes.message);
+                  
+                  await loadVolunteerConfig();
                   ensureVolunteerSelection();
                   renderVolunteerOverlay();
+                } catch (err) {
+                  console.error("Remove volunteer by admin error:", err);
+                  alert("신청자 삭제에 실패했습니다: " + err.message);
                 } finally {
                   setLoading(false);
                 }
@@ -1964,16 +2236,37 @@ const renderVolunteerOverlay = () => {
               const applying = !already;
               setLoading(true, applying ? "봉사 신청 중..." : "봉사 신청 취소 중...");
               try {
-                const action = applying ? "applyVolunteer" : "cancelVolunteer";
-                const res = await apiRequest(action, { date: selectedDay.isoDate, name: state.user.name, slot: slotName });
-                if (!res || res.success === false) {
-                  alert((res && res.message) || (applying ? "신청에 실패했습니다." : "신청 취소에 실패했습니다."));
-                  return;
+                const weekStart = selectedDay.weekStartText || selectedDay.weekStartISO;
+                const { data: weekRow, error: fetchError } = await supabaseClient
+                  .from("volunteer_weeks")
+                  .select("data")
+                  .eq("week_start", weekStart)
+                  .single();
+                  
+                if (fetchError) throw fetchError;
+                
+                const updatedData = { ...weekRow.data };
+                const dayObj = updatedData.days.find(d => d.isoDate === selectedDay.isoDate);
+                if (!dayObj) throw new Error("날짜 정보를 찾을 수 없습니다.");
+                
+                if (!dayObj.participantEntries) dayObj.participantEntries = [];
+                
+                if (applying) {
+                  const exists = dayObj.participantEntries.some(e => String(e.name || "") === String(state.user.name) && (e.slot || "오전") === slotName);
+                  if (!exists) dayObj.participantEntries.push({ name: state.user.name, slot: slotName });
+                } else {
+                  dayObj.participantEntries = dayObj.participantEntries.filter(e => !(String(e.name || "") === String(state.user.name) && (e.slot || "오전") === slotName));
                 }
-                state.volunteerWeeks = res.weeks || [];
-                ensureVolunteerSelection();
+                
+                const saveRes = await saveVolunteerWeekToSupabase(weekStart, updatedData);
+                if (!saveRes.success) throw new Error(saveRes.message);
+                
+                await loadVolunteerConfig();
                 renderVolunteerOverlay();
                 setStatus(applying ? "봉사 신청이 등록되었습니다." : "봉사 신청이 취소되었습니다.");
+              } catch (err) {
+                console.error("Volunteer apply/cancel error:", err);
+                alert("작업에 실패했습니다: " + err.message);
               } finally {
                 setLoading(false);
               }
@@ -2091,20 +2384,45 @@ const renderVolunteerOverlay = () => {
               }
               setLoading(true, "신청자 변경사항을 저장하는 중...");
               try {
-                const res = await apiRequest("saveVolunteerByAdmin", {
-                  date: selectedDay.isoDate,
-                  slot: slotName,
-                  addNames: JSON.stringify(namesToAdd),
-                  removeNames: JSON.stringify(namesToRemove)
-                });
-                if (!res || res.success === false) {
-                  alert((res && res.message) || "신청자 변경 저장 중 오류가 발생했습니다.");
-                  return;
+                const weekStart = selectedDay.weekStartText || selectedDay.weekStartISO;
+                const { data: weekRow, error: fetchError } = await supabaseClient
+                  .from("volunteer_weeks")
+                  .select("data")
+                  .eq("week_start", weekStart)
+                  .single();
+                  
+                if (fetchError) throw fetchError;
+                
+                const updatedData = { ...weekRow.data };
+                const dayObj = (updatedData.days || []).find(d => d.isoDate === selectedDay.isoDate);
+                if (dayObj) {
+                  if (!dayObj.participantEntries) dayObj.participantEntries = [];
+                  
+                  // Remove
+                  namesToRemove.forEach(name => {
+                    dayObj.participantEntries = dayObj.participantEntries.filter(e => !(String(e.name || "") === String(name) && (e.slot || "오전") === slotName));
+                  });
+                  
+                  // Add
+                  namesToAdd.forEach(name => {
+                    const exists = dayObj.participantEntries.some(e => String(e.name || "") === String(name) && (e.slot || "오전") === slotName);
+                    if (!exists) dayObj.participantEntries.push({ name, slot: slotName });
+                  });
                 }
-                state.volunteerWeeks = res.weeks || [];
+                
+                const saveRes = await saveVolunteerWeekToSupabase(weekStart, updatedData);
+                if (!saveRes.success) throw new Error(saveRes.message);
+                
+                await loadVolunteerConfig();
                 ensureVolunteerSelection();
                 renderVolunteerOverlay();
-              } finally { setLoading(false); }
+                setStatus("신청자 변경사항이 저장되었습니다.");
+              } catch (err) {
+                console.error("Save volunteer by admin error:", err);
+                alert("변경사항 저장에 실패했습니다: " + err.message);
+              } finally {
+                setLoading(false);
+              }
             });
             const closeBtn = document.createElement("button");
             closeBtn.type = "button";
@@ -2317,21 +2635,67 @@ const renderVolunteerOverlay = () => {
 
       setLoading(true, "봉사 가능 요일을 저장하는 중...");
       try {
-        const res = await apiRequest("setVolunteerWeek", {
-          startDate,
-          slots: JSON.stringify(activeSlots)
-        });
-        if (!res || res.success === false) {
-          if (res && res.message) {
-            alert(res.message);
-          } else {
-            alert("봉사 가능 요일 저장에 실패했습니다.");
+        const weekStartDate = parseVisitDate(startDate);
+        if (!weekStartDate) throw new Error("Invalid start date");
+        
+        // Find Monday of that week
+        const day = weekStartDate.getDay();
+        const diff = (day + 6) % 7;
+        const monday = new Date(weekStartDate.getTime() - diff * 24 * 60 * 60 * 1000);
+        const mondayISO = toISODate(monday);
+        
+        const weekdayOrder = ["월", "화", "수", "목", "금", "토", "일"];
+        const newDays = [];
+        
+        for (let i = 0; i < 7; i++) {
+          const current = new Date(monday.getTime() + i * 24 * 60 * 60 * 1000);
+          const weekday = weekdayOrder[i];
+          const config = activeSlots.find(s => s.weekday === weekday);
+          
+          if (config && (config.am || config.pm)) {
+            newDays.push({
+              isoDate: toISODate(current),
+              dateText: formatVolunteerDateText(current),
+              weekday: weekday,
+              slotAMEnabled: config.am,
+              slotPMEnabled: config.pm,
+              participantEntries: []
+            });
           }
-          return;
         }
-        state.volunteerWeeks = res.weeks || [];
+        
+        const { data: existingWeek, error: fetchError } = await supabaseClient
+          .from("volunteer_weeks")
+          .select("data")
+          .eq("week_start", mondayISO)
+          .single();
+          
+        let finalDays = newDays;
+        if (!fetchError && existingWeek && existingWeek.data && existingWeek.data.days) {
+          finalDays = newDays.map(newDay => {
+            const oldDay = existingWeek.data.days.find(d => d.isoDate === newDay.isoDate);
+            if (oldDay) {
+              return { 
+                ...oldDay, 
+                slotAMEnabled: newDay.slotAMEnabled, 
+                slotPMEnabled: newDay.slotPMEnabled 
+              };
+            }
+            return newDay;
+          });
+        }
+        
+        const weekData = { days: finalDays };
+        const saveRes = await saveVolunteerWeekToSupabase(mondayISO, weekData);
+        if (!saveRes.success) throw new Error(saveRes.message);
+        
+        await loadVolunteerConfig();
         ensureVolunteerSelection();
         renderVolunteerOverlay();
+        setStatus("봉사 가능 요일이 저장되었습니다.");
+      } catch (err) {
+        console.error("Set volunteer week error:", err);
+        alert("저장에 실패했습니다: " + err.message);
       } finally {
         setLoading(false);
       }
@@ -2382,20 +2746,37 @@ const renderVolunteerOverlay = () => {
         memoSaveBtn.addEventListener("click", async () => {
           setLoading(true, "메모를 저장하는 중...");
           try {
-            const res = await apiRequest("setVolunteerMemo", {
-              date: selectedDay.isoDate || "",
-              weekday: selectedDay.weekday || "",
-              slot: slotName,
-              fixedMemo: fixedMemoInput.value || "",
-              extraMemo: extraMemoInput.value || ""
-            });
-            if (!res || res.success === false) {
-              alert((res && res.message) || "메모 저장 중 오류가 발생했습니다.");
-              return;
+            const weekStart = selectedDay.weekStartText || selectedDay.weekStartISO;
+            const { data: weekRow, error: fetchError } = await supabaseClient
+              .from("volunteer_weeks")
+              .select("data")
+              .eq("week_start", weekStart)
+              .single();
+              
+            if (fetchError) throw fetchError;
+            
+            const updatedData = { ...weekRow.data };
+            const dayObj = (updatedData.days || []).find(d => d.isoDate === selectedDay.isoDate);
+            if (dayObj) {
+              if (slotName === "오후") {
+                dayObj.fixedMemoPM = fixedMemoInput.value || "";
+                dayObj.extraMemoPM = extraMemoInput.value || "";
+              } else {
+                dayObj.fixedMemoAM = fixedMemoInput.value || "";
+                dayObj.extraMemoAM = extraMemoInput.value || "";
+              }
             }
-            state.volunteerWeeks = res.weeks || [];
+            
+            const saveRes = await saveVolunteerWeekToSupabase(weekStart, updatedData);
+            if (!saveRes.success) throw new Error(saveRes.message);
+            
+            await loadVolunteerConfig();
             ensureVolunteerSelection();
             renderVolunteerOverlay();
+            setStatus("메모가 저장되었습니다.");
+          } catch (err) {
+            console.error("Set volunteer memo error:", err);
+            alert("메모 저장에 실패했습니다: " + err.message);
           } finally {
             setLoading(false);
           }
@@ -3373,6 +3754,17 @@ const renderCards = () => {
         }
         try {
           setLoading(true, "카드를 삭제하는 중...");
+
+          // 1. Supabase에서 삭제/이동 처리
+          if (supabaseClient) {
+            try {
+              await deleteCardInSupabase(areaId, cardNumber);
+            } catch (supaErr) {
+              console.warn("Supabase delete failed (non-critical):", supaErr);
+            }
+          }
+
+          // 2. Google Sheets에서 삭제/이동 처리
           const res = await apiRequest("deleteCard", {
             areaId,
             cardNumber
@@ -3381,8 +3773,7 @@ const renderCards = () => {
             alert(res.message || "구역카드 삭제에 실패했습니다.");
             return;
           }
-          await loadData();
-          renderAreas();
+          await loadData();          renderAreas();
           renderCards();
           renderAdminPanel();
           setStatus("구역카드가 삭제되었습니다.");
@@ -3479,14 +3870,13 @@ const renderCards = () => {
               }
             }
             state.editingVisit = {
+              id: row.id,
               areaId: String(card["구역번호"]),
               cardNumber: String(card["카드번호"]),
               oldVisitDate: String(getVisitDateValue(row)),
               oldWorker: String(workerText),
               oldResult: String(resultText),
-              oldNote: String(memoText),
-              sheetName: row["__sheetName"] || row.__sheetName,
-              rowIndex: row["__rowIndex"] || row.__rowIndex
+              oldNote: String(memoText)
             };
             elements.visitTitle.textContent = `카드 ${card["카드번호"]} 방문 내역 수정`;
             elements.visitDate.value = toISODate(getVisitDateValue(row));
@@ -3747,11 +4137,19 @@ const startServiceForArea = async (areaId) => {
   }
   setLoading(true, "봉사 시작 중...");
   try {
-    await apiRequest("startService", {
-      areaId,
-      leaderName: state.user.name,
-      date: todayISO()
-    });
+    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+    
+    const { error } = await supabaseClient
+      .from("areas")
+      .update({
+        start_date: todayISO(),
+        leader: state.user.name,
+        end_date: null
+      })
+      .eq("area_id", String(areaId));
+      
+    if (error) throw error;
+    
     setStatus("오늘 봉사가 시작되었습니다.");
     await loadData();
     renderAreas();
@@ -3760,49 +4158,91 @@ const startServiceForArea = async (areaId) => {
     state.view = "area";
     elements.areaTitle.textContent = `구역 ${areaId}`;
     renderCards();
+  } catch (err) {
+    console.error("Start service error:", err);
+    alert("봉사 시작에 실패했습니다: " + err.message);
   } finally {
     setLoading(false);
   }
-  };
+};
 
-  const cancelServiceForArea = async (areaId) => {
-    if (!areaId) return;
-    setLoading(true, "봉사 취소 중...");
-    try {
-      await apiRequest("cancelService", { areaId });
-      setStatus("봉사 시작이 취소되었습니다.");
-      await loadData();
-      renderAreas();
-      renderAdminPanel();
-      renderCards();
-      renderMyCarInfo();
-    } finally {
-      setLoading(false);
-    }
-  };
+const cancelServiceForArea = async (areaId) => {
+  if (!areaId) return;
+  setLoading(true, "봉사 취소 중...");
+  try {
+    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+    
+    const { error } = await supabaseClient
+      .from("areas")
+      .update({
+        start_date: null,
+        leader: null
+      })
+      .eq("area_id", String(areaId));
+      
+    if (error) throw error;
+    
+    setStatus("봉사 시작이 취소되었습니다.");
+    await loadData();
+    renderAreas();
+    renderAdminPanel();
+    renderCards();
+    renderMyCarInfo();
+  } catch (err) {
+    console.error("Cancel service error:", err);
+    alert("봉사 취소에 실패했습니다: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
 
-  const finishAreaWithoutVisits = async (areaId) => {
-    if (!areaId) return;
-    setLoading(true, "구역 완료 처리 중...");
-    try {
-      const res = await apiRequest("finishAreaWithoutVisits", {
-        areaId,
-        leaderName: state.user.name
+const finishAreaWithoutVisits = async (areaId) => {
+  if (!areaId) return;
+  setLoading(true, "구역 완료 처리 중...");
+  try {
+    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+    
+    const { data: areaRow, error: fetchError } = await supabaseClient
+      .from("areas")
+      .select("*")
+      .eq("area_id", areaId)
+      .single();
+      
+    if (fetchError) throw fetchError;
+    
+    const endDate = todayISO();
+    
+    const { error: updateError } = await supabaseClient
+      .from("areas")
+      .update({ end_date: endDate })
+      .eq("area_id", areaId);
+      
+    if (updateError) throw updateError;
+    
+    const { error: insertError } = await supabaseClient
+      .from("completions")
+      .insert({
+        area_id: areaId,
+        start_date: areaRow.start_date,
+        end_date: endDate,
+        leader: areaRow.leader
       });
-      if (!res.success) {
-        alert(res.message || "구역 완료 처리에 실패했습니다.");
-        return;
-      }
-      setStatus("구역 봉사가 완료되었습니다.");
-      await loadData();
-      collapseExpandedArea();
-      renderAreas();
-      renderCards();
-      renderAdminPanel();
-    } finally {
-      setLoading(false);
-    }
-  };
+      
+    if (insertError) throw insertError;
+    
+    setStatus("구역 봉사가 완료되었습니다.");
+    await loadData();
+    collapseExpandedArea();
+    renderAreas();
+    renderCards();
+    renderAdminPanel();
+  } catch (err) {
+    console.error("Finish area error:", err);
+    alert("구역 완료 처리에 실패했습니다: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
   const renderAdminPanel = () => {
 
   if (!state.user) {
@@ -4592,14 +5032,13 @@ const startServiceForArea = async (areaId) => {
           clearBtn.textContent = "해제";
           clearBtn.addEventListener("click", async () => {
             try {
-              const res = await apiRequest("updateCardFlags", {
+              const res = await updateCardFlagsInSupabase(
                 areaId,
-                cardNumber: String(target["카드번호"] || ""),
-                sixMonths: false,
-                banned: false
-              });
+                String(target["카드번호"] || ""),
+                { sixMonths: false, banned: false }
+              );
               if (!res.success) {
-                alert(res.message || "카드 상태 변경에 실패했습니다.");
+                alert("카드 상태 변경에 실패했습니다.");
                 return;
               }
               const cards = state.data.cards || [];
@@ -4619,6 +5058,7 @@ const startServiceForArea = async (areaId) => {
               renderAdminPanel();
               setStatus("방문금지/6개월 상태가 해제되었습니다.");
             } catch (e) {
+              console.error(e);
               alert("카드 상태 변경 중 오류가 발생했습니다.");
             }
           });
@@ -4734,13 +5174,295 @@ const selectCard = (card) => {
   renderCards();
 };
 
+const toIsoDate = (dateStr) => {
+  if (!dateStr) return null;
+  const s = String(dateStr).trim();
+  if (!s) return null;
+  // yy/mm/dd -> 20yy-mm-dd
+  if (/^\d{2}\/\d{2}\/\d{2}$/.test(s)) {
+    return "20" + s.replace(/\//g, "-");
+  }
+  // yyyy-mm-dd... -> yyyy-mm-dd
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return isoMatch[0];
+  try {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
+  } catch (e) {}
+  return null;
+};
+
+const migrateToSupabase = async () => {
+  if (!supabaseClient) {
+    alert("Supabase 설정이 올바르지 않습니다.");
+    return;
+  }
+  if (!confirm("구글 시트의 데이터를 Supabase로 복사하시겠습니까?")) {
+    return;
+  }
+
+  setLoading(true, "구글 시트에서 데이터 가져오는 중...");
+  try {
+    const data = await apiRequest("bootstrap", {}, "GET");
+    if (data.error) throw new Error(data.error);
+    
+    console.log("Data from Google Sheets:", data);
+
+    const checkError = (res, stage) => {
+      if (res.error) {
+        console.error(`Error at ${stage}:`, res.error);
+        throw new Error(`[${stage}] ${res.error.message}\n${res.error.details || ""}`);
+      }
+    };
+
+    setLoading(true, "구역번호(areas) 동기화 중...");
+    const areas = (data.areas || []).map(a => ({
+      area_id: String(a["구역번호"] || ""),
+      start_date: toIsoDate(a["시작날짜"]),
+      end_date: toIsoDate(a["완료날짜"]),
+      leader: a["인도자"],
+      start_date_backup: toIsoDate(a["시작날짜백업"]),
+      end_date_backup: toIsoDate(a["완료날짜백업"]),
+      leader_backup: a["인도자백업"]
+    })).filter(a => a.area_id);
+    console.log("Processed areas:", areas);
+    if (areas.length) {
+      const res = await supabaseClient.from("areas").upsert(areas, { onConflict: "area_id" });
+      checkError(res, "areas");
+    }
+
+    setLoading(true, "구역카드(cards) 동기화 중...");
+    const cards = (data.cards || []).map(c => ({
+      area_id: String(c["구역번호"] || ""),
+      card_number: String(c["카드번호"] || ""),
+      address: c["주소"],
+      recent_visit_date: toIsoDate(c["최근방문일"]),
+      prev_visit_date: toIsoDate(c["이전봉사일"]),
+      meet: !!c["만남"],
+      absent: !!c["부재"],
+      revisit: !!c["재방"],
+      study: !!c["연구"],
+      six_months: !!c["6개월"],
+      banned: !!c["방문금지"],
+      car_id: String(c["차량"] || ""),
+      assignment_date: toIsoDate(c["배정날짜"]),
+      invite: !!c["초대장"]
+    })).filter(c => c.area_id && c.card_number);
+    console.log("Processed cards:", cards);
+    if (cards.length) {
+      const res = await supabaseClient.from("cards").upsert(cards, { onConflict: "area_id, card_number" });
+      checkError(res, "cards");
+    }
+
+    setLoading(true, "삭제된카드(deleted_cards) 동기화 중...");
+    const deletedCards = (data.deletedCards || []).map(dc => ({
+      area_id: String(dc["구역번호"] || ""),
+      card_number: String(dc["카드번호"] || ""),
+      address: dc["주소"],
+      deleted_at: toIsoDate(dc["삭제일"]) || new Date().toISOString()
+    })).filter(dc => dc.area_id && dc.card_number);
+    console.log("Processed deleted cards:", deletedCards);
+    if (deletedCards.length) {
+      const res = await supabaseClient.from("deleted_cards").upsert(deletedCards, { onConflict: "area_id, card_number" });
+      checkError(res, "deleted_cards");
+    }
+
+    setLoading(true, "전도인명단(evangelists) 동기화 중...");
+    const evangelists = (data.evangelists || []).map(e => ({
+      name: String(e["이름"] || ""),
+      password: String(e["비밀번호"] || ""),
+      role: e["역할"] || e["권한"] || "전도인",
+      gender: e["성별"] || "",
+      driver: isTrueValue(e["운전자"]),
+      capacity: Number(e["차량"]) || 0,
+      spouse: e["부부"] || "",
+      is_deaf: isTrueValue(e["농인"])
+    })).filter(e => e.name);
+    if (evangelists.length) {
+      const res = await supabaseClient.from("evangelists").upsert(evangelists, { onConflict: "name" });
+      checkError(res, "evangelists");
+    }
+
+    setLoading(true, "방문기록(visits) 동기화 중...");
+    const visits = (data.visits || []).map(v => ({
+      area_id: String(v["구역번호"] || v["areaId"] || ""),
+      card_number: String(v["카드번호"] || v["구역카드"] || v["cardNumber"] || ""),
+      visit_date: toIsoDate(v["방문날짜"] || v["방문일"] || v["날짜"]),
+      worker: v["전도인"] || v["방문자"],
+      result: v["결과"] || v["방문결과"],
+      note: v["메모"] || v["비고"]
+    })).filter(v => v.area_id && v.card_number);
+    if (visits.length) {
+      for (let i = 0; i < visits.length; i += 500) {
+        const res = await supabaseClient.from("visits").insert(visits.slice(i, i + 500));
+        checkError(res, `visits (chunk ${i/500 + 1})`);
+      }
+    }
+
+    setLoading(true, "차량배정(assignments) 동기화 중...");
+    const assignments = (data.assignments || []).map(a => ({
+      date: toIsoDate(a["날짜"]),
+      slot: a["시간대"] || "오전",
+      car_id: String(a["차량"] || ""),
+      driver: a["운전자"] || a["이름"],
+      passengers: Array.isArray(a["동승자"]) ? a["동승자"] : []
+    }));
+    if (assignments.length) {
+      const res = await supabaseClient.from("car_assignments").insert(assignments);
+      checkError(res, "car_assignments");
+    }
+
+    setLoading(true, "봉사신청(volunteer_weeks) 동기화 중...");
+    try {
+      const volData = await apiRequest("getVolunteerConfig", {});
+      if (volData && volData.weeks && volData.weeks.length > 0) {
+        for (const week of volData.weeks) {
+          const weekStart = week.weekStartISO || toIsoDate(week.weekStartText);
+          if (weekStart) {
+            const { error: volError } = await supabaseClient
+              .from("volunteer_weeks")
+              .upsert({
+                week_start: weekStart,
+                data: week
+              });
+            if (volError) console.error("Volunteer sync error for week " + weekStart, volError);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Volunteer data sync failed (optional):", err);
+    }
+
+    alert("동기화가 완료되었습니다!");
+    location.reload();
+  } catch (err) {
+    console.error("Migration error:", err);
+    alert("동기화 실패: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const migrateToSheets = async () => {
+  if (!state.isSuperAdmin) {
+    alert("최고관리자 권한이 필요합니다.");
+    return;
+  }
+  if (!confirm("Supabase의 데이터를 구글 시트로 '전체 덮어쓰기' 하시겠습니까?\n이 작업은 구글 시트의 기존 내용을 삭제하고 Supabase 내용으로 교체합니다.")) {
+    return;
+  }
+
+  setLoading(true, "Supabase에서 데이터 가져오는 중...");
+  try {
+    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+    // 1. Supabase에서 전체 데이터 읽기
+    const { data: areas } = await supabaseClient.from("areas").select("*");
+    const { data: cards } = await supabaseClient.from("cards").select("*");
+    const { data: deletedCards } = await supabaseClient.from("deleted_cards").select("*");
+    const { data: evangelists } = await supabaseClient.from("evangelists").select("*");
+    const { data: completions } = await supabaseClient.from("completions").select("*");
+
+    // 2. Apps Script 포맷으로 변환 (한글 키 사용)
+    const payload = {
+      areas: (areas || []).map(a => ({
+        "구역번호": a.area_id, "시작날짜": a.start_date, "완료날짜": a.end_date, "인도자": a.leader
+      })),
+      cards: (cards || []).map(c => ({
+        "구역번호": c.area_id, "카드번호": c.card_number, "주소": c.address,
+        "최근방문일": c.recent_visit_date, "이전봉사일": c.prev_visit_date,
+        "만남": c.meet, "부재": c.absent, "재방": c.revisit, "연구": c.study,
+        "6개월": c.six_months, "방문금지": c.banned, "차량": c.car_id, "배정날짜": c.assignment_date,
+        "초대장": c.invite
+      })),
+      deletedCards: (deletedCards || []).map(dc => ({
+        "구역번호": dc.area_id, "카드번호": dc.card_number, "주소": dc.address, "삭제일": dc.deleted_at
+      })),
+      evangelists: (evangelists || []).map(e => ({
+        "이름": e.name, "비밀번호": e.password, "역할": e.role
+      })),
+      completions: (completions || []).map(c => ({
+        "구역번호": c.area_id, "완료날짜": c.completion_date, "인도자": c.leader
+      }))
+    };
+
+    setLoading(true, "구글 시트로 데이터 전송 중...");
+    const res = await apiRequest("syncFromSupabase", { data: JSON.stringify(payload) });
+    
+    if (res.success) {
+      alert("구글 시트 덮어쓰기가 완료되었습니다!");
+    } else {
+      throw new Error(res.message);
+    }
+  } catch (err) {
+    console.error("Sync to Sheets error:", err);
+    alert("동기화 실패: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
 const loadData = async () => {
   setLoading(true, "데이터 불러오는 중...");
   try {
-    const data = await apiRequest("bootstrap", {}, "GET");
-    if (data.error) {
-      throw new Error(data.error);
+    // 1. Supabase에서 데이터 먼저 시도
+    if (supabaseClient) {
+      const { data: areas } = await supabaseClient.from("areas").select("*");
+      if (areas && areas.length > 0) {
+        const { data: cards } = await supabaseClient.from("cards").select("*");
+        const { data: evangelists } = await supabaseClient.from("evangelists").select("*");
+        const { data: assignments } = await supabaseClient.from("car_assignments").select("*").gte("date", toIsoDate(new Date()));
+        const { data: inviteCampaign } = await supabaseClient.from("invite_campaign").select("*").order("created_at", { ascending: false }).limit(1);
+        const { data: completions } = await supabaseClient.from("completions").select("*");
+        const { data: deletedCards } = await supabaseClient.from("deleted_cards").select("*").order("deleted_at", { ascending: false });
+
+        // 데이터 형식 변환 (Supabase 스네이크 케이스 -> 앱 내부 한글/카멜 케이스 유지)
+        state.data.areas = areas.map(a => ({
+          "구역번호": a.area_id, "시작날짜": a.start_date, "완료날짜": a.end_date, "인도자": a.leader
+        }));
+        state.data.cards = cards.map(c => ({
+          id: c.id,
+          "구역번호": c.area_id, "카드번호": c.card_number, "주소": c.address,
+          "최근방문일": c.recent_visit_date, "이전봉사일": c.prev_visit_date,
+          "만남": c.meet, "부재": c.absent, "재방": c.revisit, "연구": c.study,
+          "6개월": c.six_months, "방문금지": c.banned, "차량": c.car_id, "배정날짜": c.assignment_date,
+          "초대장": c.invite
+        }));
+        state.data.deletedCards = (deletedCards || []).map(dc => ({
+          id: dc.id,
+          "구역번호": dc.area_id, "카드번호": dc.card_number, "주소": dc.address, "삭제일": dc.deleted_at
+        }));        state.data.evangelists = evangelists.map(e => ({
+          "이름": e.name, "비밀번호": e.password, "역할": e.role
+        }));
+        state.data.assignments = assignments.map(a => ({
+          id: a.id,
+          "날짜": a.date, "시간대": a.slot, "차량": a.car_id, "이름": a.driver
+        }));
+        state.inviteCampaign = inviteCampaign && inviteCampaign[0] ? {
+          id: inviteCampaign[0].id,
+          active: inviteCampaign[0].status === "active",
+          startDate: inviteCampaign[0].start_date,
+          endDate: inviteCampaign[0].end_date,
+          memo: inviteCampaign[0].memo
+        } : null;
+        state.data.completions = completions || [];
+
+        // 방문기록은 너무 많으면 나중에 페이징 처리 필요 (일단 최근 1000개만)
+        const { data: visits } = await supabaseClient.from("visits").select("*").order("visit_date", { ascending: false }).limit(1000);
+        state.data.visits = (visits || []).map(v => ({
+          id: v.id,
+          "구역번호": v.area_id, "카드번호": v.card_number, "방문날짜": v.visit_date,
+          "전도인": v.worker, "결과": v.result, "메모": v.note
+        }));
+        console.log("Supabase data loaded");
+        return;
+      }
     }
+
+    // 2. Supabase에 데이터가 없거나 실패한 경우 구글 시트 사용 (최초 1회)
+    const data = await apiRequest("bootstrap", {}, "GET");
+    if (data.error) throw new Error(data.error);
+    
     state.data.cards = data.cards || [];
     state.data.areas = data.areas || data.areaStatus || [];
     state.data.completions = data.completions || [];
@@ -4750,6 +5472,8 @@ const loadData = async () => {
     state.data.assignments = sanitizeAssignmentRows(state.data.assignments);
     state.inviteCampaign = data.inviteCampaign || null;
     state.data.deletedCards = data.deletedCards || [];
+    
+    console.log("Google Sheets data loaded (Fallback)");
   } finally {
     setLoading(false);
   }
@@ -4760,6 +5484,7 @@ const updateMenuVisibility = () => {
   const userRole = String(state.user.role || "").trim();
   const isAdmin = userRole === "관리자";
   const isLeader = userRole === "인도자";
+  const isSuper = state.isSuperAdmin === true;
   
   document.querySelectorAll(".admin-only").forEach(el => {
     el.classList.toggle("hidden", !isAdmin);
@@ -4767,6 +5492,10 @@ const updateMenuVisibility = () => {
   
   document.querySelectorAll(".leader-only").forEach(el => {
     el.classList.toggle("hidden", !isAdmin && !isLeader);
+  });
+
+  document.querySelectorAll(".super-admin-only").forEach(el => {
+    el.classList.toggle("hidden", !isSuper);
   });
 };
 
@@ -4805,12 +5534,47 @@ const login = async () => {
   }
   setLoading(true, "로그인 중입니다...");
   try {
-    const res = await apiRequest("login", { name, password });
-    if (!res.success) {
-      alert(res.message || "로그인 실패");
+    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+    // 1. 최고관리자 체크 (Supabase site_config)
+    try {
+      const { data: config } = await supabaseClient
+        .from("site_config")
+        .select("config_value")
+        .eq("config_key", "super_admin")
+        .single();
+      
+      if (config && config.config_value) {
+        const admin = config.config_value;
+        if (name === admin.id && password === admin.pass) {
+          state.isSuperAdmin = true;
+          const superUser = { name: "최고관리자", role: "관리자" };
+          try {
+            window.localStorage.setItem("mcUser", JSON.stringify({ name: "최고관리자", role: "관리자", isSuper: true }));
+          } catch (e) {}
+          await enterDashboard(superUser);
+          return;
+        }
+      }
+    } catch (adminErr) {
+      console.warn("Super admin check skipped:", adminErr);
+    }
+
+    // 2. 일반 전도인 체크 (Supabase evangelists)
+    const { data, error } = await supabaseClient
+      .from("evangelists")
+      .select("*")
+      .eq("name", name)
+      .eq("password", password)
+      .single();
+      
+    if (error || !data) {
+      alert("이름 또는 비밀번호가 올바르지 않습니다.");
       return;
     }
-    const user = { role: res.role, name: res.name };
+    
+    state.isSuperAdmin = false;
+    const user = { role: data.role || "전도인", name: data.name };
     try {
       window.localStorage.setItem(
         "mcUser",
@@ -4818,6 +5582,9 @@ const login = async () => {
       );
     } catch (e) {}
     await enterDashboard(user);
+  } catch (err) {
+    console.error("Login error:", err);
+    alert("로그인 중 오류가 발생했습니다: " + err.message);
   } finally {
     setLoading(false);
   }
@@ -4828,12 +5595,33 @@ const resetRecentVisits = async () => {
     alert("구역을 선택해 주세요.");
     return;
   }
-  await apiRequest("resetRecentVisits", { areaId: state.selectedArea });
-  setStatus("최근방문일이 초기화되었습니다.");
-  await loadData();
-  renderAreas();
-  renderCards();
-  renderAdminPanel();
+  setLoading(true, "최근방문일 초기화 중...");
+  try {
+    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+    
+    const { error } = await supabaseClient
+      .from("cards")
+      .update({
+        recent_visit_date: null,
+        meet: false,
+        absent: false,
+        invite: false
+      })
+      .eq("area_id", String(state.selectedArea));
+      
+    if (error) throw error;
+    
+    setStatus("최근방문일이 초기화되었습니다.");
+    await loadData();
+    renderAreas();
+    renderCards();
+    renderAdminPanel();
+  } catch (err) {
+    console.error(err);
+    alert("초기화에 실패했습니다: " + err.message);
+  } finally {
+    setLoading(false);
+  }
 };
 
 const updateVisitFlagButtons = () => {
@@ -4904,72 +5692,207 @@ const saveVisit = async (event) => {
     return;
   }
   const isEdit = Boolean(state.editingVisit);
-  const sheetName =
-    state.editingVisit && state.editingVisit.sheetName
-      ? state.editingVisit.sheetName
-      : "";
-  const rowIndex =
-    state.editingVisit && state.editingVisit.rowIndex
-      ? String(state.editingVisit.rowIndex)
-      : "";
+  
   setLoading(true, isEdit ? "방문 기록 수정 중..." : "방문 기록 저장 중...");
   try {
-    const res = isEdit
-      ? await apiRequest("updateVisit", {
-          areaId,
-          cardNumber,
-          oldVisitDate: state.editingVisit.oldVisitDate,
-          oldWorker: state.editingVisit.oldWorker,
-          sheetName,
-          rowIndex,
-          newVisitDate: visitDate,
-          newWorker: worker,
-          newResult: result,
-          newNote: note,
-          leaderName: state.user.name
+    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+    
+    if (isEdit) {
+      const { error: updateError } = await supabaseClient
+        .from("visits")
+        .update({
+          visit_date: visitDate,
+          worker: worker,
+          result: result,
+          note: note
         })
-      : await apiRequest("recordVisit", {
-          areaId,
-          cardNumber,
-          visitDate,
-          worker,
-          result,
-          note,
-          leaderName: state.user.name
+        .eq("id", state.editingVisit.id);
+        
+      if (updateError) throw updateError;
+    } else {
+      const { error: insertError } = await supabaseClient
+        .from("visits")
+        .insert({
+          area_id: areaId,
+          card_number: cardNumber,
+          visit_date: visitDate,
+          worker: worker,
+          result: result,
+          note: note
         });
-    if (!res || res.success === false) {
-      alert(
-        res && res.message
-          ? res.message
-          : isEdit
-          ? "방문 기록 수정에 실패했습니다."
-          : "방문 기록 저장에 실패했습니다."
-      );
-      return;
+        
+      if (insertError) throw insertError;
     }
+
+    // 카드 상태 업데이트
+    const { data: allVisits, error: visitsError } = await supabaseClient
+      .from("visits")
+      .select("*")
+      .eq("area_id", areaId)
+      .eq("card_number", cardNumber)
+      .order("visit_date", { ascending: false });
+      
+    if (visitsError) throw visitsError;
+    
+    const latest = allVisits[0];
+    const latestResult = latest ? latest.result : "";
+    const latestDate = latest ? latest.visit_date : null;
+    
+    const { data: cardRow, error: cardError } = await supabaseClient
+      .from("cards")
+      .select("*")
+      .eq("area_id", areaId)
+      .eq("card_number", cardNumber)
+      .single();
+      
+    if (cardError) throw cardError;
+    
+    const updatePayload = {
+      recent_visit_date: latestDate,
+      meet: latestResult === "만남",
+      absent: latestResult === "부재",
+      revisit: latestResult === "재방",
+      study: latestResult === "연구",
+      invite: latestResult === "초대장",
+      six_months: (cardRow.six_months || latestResult === "6개월"),
+      banned: (cardRow.banned || latestResult === "방문금지")
+    };
+    
+    const { error: cardUpdateError } = await supabaseClient
+      .from("cards")
+      .update(updatePayload)
+      .eq("area_id", areaId)
+      .eq("card_number", cardNumber);
+      
+    if (cardUpdateError) throw cardUpdateError;
+    
+    // 구역 완료 여부 확인
+    const { data: areaCards, error: areaCardsError } = await supabaseClient
+      .from("cards")
+      .select("*")
+      .eq("area_id", areaId);
+      
+    if (areaCardsError) throw areaCardsError;
+    
+    const isComplete = areaCards.every(c => {
+      if (c.revisit || c.study || c.six_months || c.banned) return true;
+      return !!c.recent_visit_date;
+    });
+    
+    let completeResult = false;
+    if (isComplete) {
+       const { data: areaRow, error: areaRowError } = await supabaseClient
+         .from("areas")
+         .select("*")
+         .eq("area_id", areaId)
+         .single();
+         
+       if (!areaRowError && areaRow.start_date && !areaRow.end_date) {
+         const completeDate = visitDate;
+         const leaderName = state.user.name;
+         
+         await supabaseClient
+           .from("areas")
+           .update({ end_date: completeDate, leader: leaderName })
+           .eq("area_id", areaId);
+           
+         await supabaseClient
+           .from("completions")
+           .insert({
+             area_id: areaId,
+             start_date: areaRow.start_date,
+             end_date: completeDate,
+             leader: leaderName
+           });
+           
+         completeResult = true;
+       }
+    }
+
     await loadData();
-    if (!isEdit && res.complete) {
+    if (!isEdit && completeResult) {
       collapseExpandedArea();
     }
     renderAreas();
     renderCards();
     renderAdminPanel();
+    
     if (isEdit) {
       setStatus("방문내역이 수정되었습니다.");
       state.editingVisit = null;
     } else {
-      if (res.complete) {
+      if (completeResult) {
         setStatus("모든 카드의 최근방문일이 기록되었습니다. 완료내역이 업데이트되었습니다.");
       } else {
         setStatus("방문내역이 기록되었습니다.");
       }
     }
+  } catch (err) {
+    console.error("Save visit error:", err);
+    alert("오류가 발생했습니다: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const exportToExcel = async () => {
+  if (!supabaseClient) {
+    alert("Supabase 클라이언트가 초기화되지 않았습니다.");
+    return;
+  }
+  if (!window.XLSX) {
+    alert("Excel 라이브러리를 불러오지 못했습니다.");
+    return;
+  }
+
+  setLoading(true, "Supabase 데이터를 백업용 엑셀로 생성 중...");
+  try {
+    const tables = [
+      { name: "areas", label: "구역정보" },
+      { name: "cards", label: "구역카드" },
+      { name: "visits", label: "방문기록" },
+      { name: "evangelists", label: "전도인명단" },
+      { name: "car_assignments", label: "차량배정" },
+      { name: "volunteer_weeks", label: "봉사신청설정" },
+      { name: "completions", label: "완료내역" },
+      { name: "invite_campaign", label: "초대장캠페인" }
+    ];
+
+    const wb = XLSX.utils.book_new();
+
+    for (const table of tables) {
+      const { data, error } = await supabaseClient.from(table.name).select("*");
+      if (error) {
+        console.warn(`Table ${table.name} backup error:`, error);
+        continue;
+      }
+      if (data && data.length > 0) {
+        const ws = XLSX.utils.json_to_sheet(data);
+        XLSX.utils.book_append_sheet(wb, ws, table.label);
+      }
+    }
+
+    const fileName = `MinistryCard_Backup_${new Date().toISOString().split("T")[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+    setStatus("데이터 백업이 완료되었습니다.");
+  } catch (err) {
+    console.error("Excel export error:", err);
+    alert("엑셀 백업 중 오류가 발생했습니다: " + err.message);
   } finally {
     setLoading(false);
   }
 };
 
 elements.saveApiUrl.addEventListener("click", saveApiUrl);
+if (elements.syncToSupabase) {
+  elements.syncToSupabase.addEventListener("click", migrateToSupabase);
+}
+if (elements.syncToSheets) {
+  elements.syncToSheets.addEventListener("click", migrateToSheets);
+}
+if (elements.backupToExcel) {
+  elements.backupToExcel.addEventListener("click", exportToExcel);
+}
 elements.loginButton.addEventListener("click", login);
 if (elements.appTitle) {
   elements.appTitle.addEventListener("click", () => {
@@ -5098,12 +6021,15 @@ const tryAutoLogin = async () => {
     if (!data || !data.name || !data.role) {
       return;
     }
+    state.isSuperAdmin = data.isSuper === true;
     await enterDashboard({ name: data.name, role: data.role });
   } catch (e) {}
 };
 
 const logout = () => {
   state.user = null;
+  state.isSuperAdmin = false;
+  elements.configPanel.classList.add("hidden");
   try {
     window.localStorage.removeItem("mcUser");
   } catch (e) {}
@@ -5127,13 +6053,13 @@ if (elements.visitClearRevisit) {
     }
     try {
       setLoading(true, "재방 표시 해제 중...");
-      const res = await apiRequest("updateCardFlags", {
-        areaId: state.selectedArea,
-        cardNumber: state.selectedCard["카드번호"],
-        revisit: false
-      });
+      const res = await updateCardFlagsInSupabase(
+        state.selectedArea,
+        state.selectedCard["카드번호"],
+        { revisit: false }
+      );
       if (!res.success) {
-        alert(res.message || "재방 해제에 실패했습니다.");
+        alert("재방 해제에 실패했습니다.");
         return;
       }
       state.selectedCard["재방"] = false;
@@ -5151,6 +6077,7 @@ if (elements.visitClearRevisit) {
       updateVisitFlagButtons();
       setStatus("재방 표시가 해제되었습니다.");
     } catch (e) {
+      console.error(e);
       alert("재방 해제 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
@@ -5168,13 +6095,13 @@ if (elements.visitClearStudy) {
     }
     try {
       setLoading(true, "연구 표시 해제 중...");
-      const res = await apiRequest("updateCardFlags", {
-        areaId: state.selectedArea,
-        cardNumber: state.selectedCard["카드번호"],
-        study: false
-      });
+      const res = await updateCardFlagsInSupabase(
+        state.selectedArea,
+        state.selectedCard["카드번호"],
+        { study: false }
+      );
       if (!res.success) {
-        alert(res.message || "연구 해제에 실패했습니다.");
+        alert("연구 해제에 실패했습니다.");
         return;
       }
       state.selectedCard["연구"] = false;
@@ -5192,6 +6119,7 @@ if (elements.visitClearStudy) {
       updateVisitFlagButtons();
       setStatus("연구 표시가 해제되었습니다.");
     } catch (e) {
+      console.error(e);
       alert("연구 해제 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
@@ -5209,13 +6137,13 @@ if (elements.visitClearSix) {
     }
     try {
       setLoading(true, "6개월 표시 해제 중...");
-      const res = await apiRequest("updateCardFlags", {
-        areaId: state.selectedArea,
-        cardNumber: state.selectedCard["카드번호"],
-        sixMonths: false
-      });
+      const res = await updateCardFlagsInSupabase(
+        state.selectedArea,
+        state.selectedCard["카드번호"],
+        { sixMonths: false }
+      );
       if (!res.success) {
-        alert(res.message || "6개월 해제에 실패했습니다.");
+        alert("6개월 해제에 실패했습니다.");
         return;
       }
       state.selectedCard["6개월"] = false;
@@ -5233,6 +6161,7 @@ if (elements.visitClearSix) {
       updateVisitFlagButtons();
       setStatus("6개월 표시가 해제되었습니다.");
     } catch (e) {
+      console.error(e);
       alert("6개월 해제 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
@@ -5250,13 +6179,13 @@ if (elements.visitClearBanned) {
     }
     try {
       setLoading(true, "방문금지 표시 해제 중...");
-      const res = await apiRequest("updateCardFlags", {
-        areaId: state.selectedArea,
-        cardNumber: state.selectedCard["카드번호"],
-        banned: false
-      });
+      const res = await updateCardFlagsInSupabase(
+        state.selectedArea,
+        state.selectedCard["카드번호"],
+        { banned: false }
+      );
       if (!res.success) {
-        alert(res.message || "방문금지 해제에 실패했습니다.");
+        alert("방문금지 해제에 실패했습니다.");
         return;
       }
       state.selectedCard["방문금지"] = false;
@@ -5274,6 +6203,7 @@ if (elements.visitClearBanned) {
       updateVisitFlagButtons();
       setStatus("방문금지 표시가 해제되었습니다.");
     } catch (e) {
+      console.error(e);
       alert("방문금지 해제 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
@@ -5762,9 +6692,7 @@ elements.sideMenu.addEventListener("click", (event) => {
     document.body.style.overflow = "hidden";
     (async () => {
       await loadVolunteerConfig();
-      const defaultDate = getNearestVolunteerDateISO(
-        state.carAssignDate || state.selectedVolunteerDate || todayISO()
-      );
+      const defaultDate = getNearestVolunteerDateISO(todayISO());
       await setCarAssignDate(defaultDate);
     })();
   } else if (key === "invite-campaign") {
@@ -5773,8 +6701,20 @@ elements.sideMenu.addEventListener("click", (event) => {
       document.body.style.overflow = "hidden";
       renderInviteCampaignOverlay();
     }
+  } else if (key === "config") {
+    if (state.isSuperAdmin) {
+      elements.configPanel.classList.remove("hidden");
+    } else {
+      alert("최고관리자만 설정에 접근할 수 있습니다.");
+    }
   }
 });
+
+if (elements.closeConfig && elements.configPanel) {
+  elements.closeConfig.addEventListener("click", () => {
+    elements.configPanel.classList.add("hidden");
+  });
+}
 
 if (elements.closeVolunteer && elements.volunteerOverlay) {
   elements.closeVolunteer.addEventListener("click", () => {
@@ -5818,14 +6758,30 @@ if (elements.inviteStart) {
   elements.inviteStart.addEventListener("click", async () => {
     setLoading(true, "초대장 배부를 시작하는 중...");
     try {
-      const res = await apiRequest("startInviteCampaign", {});
-      if (!res.success) {
-        alert(res.message || "초대장 배부 시작에 실패했습니다.");
-        return;
-      }
-      state.inviteCampaign = res.info || null;
+      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+      
+      const { data, error } = await supabaseClient
+        .from("invite_campaign")
+        .insert({
+          status: "active",
+          start_date: todayISO()
+        })
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
+      state.inviteCampaign = {
+        id: data.id,
+        active: true,
+        startDate: data.start_date,
+        memo: data.memo
+      };
       state.inviteStats = null;
       renderInviteCampaignOverlay();
+    } catch (err) {
+      console.error(err);
+      alert("초대장 배부 시작에 실패했습니다: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -5836,13 +6792,31 @@ if (elements.inviteStop) {
   elements.inviteStop.addEventListener("click", async () => {
     setLoading(true, "초대장 배부를 종료하는 중...");
     try {
-      const res = await apiRequest("stopInviteCampaign", {});
-      if (!res.success) {
-        alert(res.message || "초대장 배부 종료에 실패했습니다.");
-        return;
-      }
-      state.inviteCampaign = res.info || null;
+      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+      
+      const { data, error } = await supabaseClient
+        .from("invite_campaign")
+        .update({
+          status: "finished",
+          end_date: todayISO()
+        })
+        .eq("status", "active")
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
+      state.inviteCampaign = {
+        id: data.id,
+        active: false,
+        startDate: data.start_date,
+        endDate: data.end_date,
+        memo: data.memo
+      };
       renderInviteCampaignOverlay();
+    } catch (err) {
+      console.error(err);
+      alert("초대장 배부 종료에 실패했습니다: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -5853,13 +6827,51 @@ if (elements.inviteRefresh) {
   elements.inviteRefresh.addEventListener("click", async () => {
     setLoading(true, "초대장 배부 통계를 불러오는 중...");
     try {
-      const res = await apiRequest("getInviteCampaignStats", {});
-      if (!res.success) {
-        alert(res.message || "통계를 불러오는 데 실패했습니다.");
+      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+      
+      if (!state.inviteCampaign) {
+        alert("진행 중이거나 종료된 캠페인이 없습니다.");
         return;
       }
-      state.inviteStats = res.summary || null;
+      
+      const start = state.inviteCampaign.startDate;
+      const end = state.inviteCampaign.endDate || todayISO();
+      
+      const { data: visits, error } = await supabaseClient
+        .from("visits")
+        .select("*")
+        .gte("visit_date", start)
+        .lte("visit_date", end)
+        .eq("result", "초대장");
+        
+      if (error) throw error;
+      
+      const totalVisits = (visits || []).length;
+      const uniqueCards = new Set((visits || []).map(v => `${v.area_id}-${v.card_number}`)).size;
+      
+      const byAreaMap = {};
+      (visits || []).forEach(v => {
+        if (!byAreaMap[v.area_id]) byAreaMap[v.area_id] = { areaId: v.area_id, cardCount: 0, visitCount: 0, cards: new Set() };
+        byAreaMap[v.area_id].visitCount++;
+        byAreaMap[v.area_id].cards.add(v.card_number);
+      });
+      
+      const areaList = Object.values(byAreaMap).map(a => ({
+        areaId: a.areaId,
+        visitCount: a.visitCount,
+        cardCount: a.cards.size
+      }));
+      
+      state.inviteStats = {
+        totalVisits,
+        totalCards: uniqueCards,
+        byArea: areaList
+      };
+      
       renderInviteCampaignOverlay();
+    } catch (err) {
+      console.error(err);
+      alert("통계를 불러오는 데 실패했습니다: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -5914,24 +6926,32 @@ if (elements.adminEvAdd) {
       driver && (driver.toUpperCase() === "Y" || driver === "1" || driver.toLowerCase() === "true");
     const capacity = capacityText ? Number(capacityText) || 0 : "";
     try {
-      const res = await apiRequest("upsertEvangelist", {
-        name,
+      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+      
+      const dbData = {
+        name: name,
+        role: role || "전도인",
         gender: gender || "",
-        role: role || "",
-        driver: driverFlag,
-        capacity: capacity === "" ? "" : String(capacity),
-        spouse: spouse || "",
-        password: password || ""
-      });
-      if (!res.success) {
-        alert(res.message || "전도인 저장에 실패했습니다.");
-        return;
+        driver: !!driverFlag,
+        capacity: capacity === "" ? 0 : Number(capacity),
+        spouse: spouse || ""
+      };
+      if (password) {
+        dbData.password = password;
       }
-      state.data.evangelists = res.evangelists || [];
+      
+      const { error } = await supabaseClient
+        .from("evangelists")
+        .upsert(dbData);
+        
+      if (error) throw error;
+      
+      await loadData();
       renderAdminPanel();
       setStatus("전도인 정보가 저장되었습니다.");
-    } catch (e) {
-      alert("전도인 저장 중 오류가 발생했습니다.");
+    } catch (err) {
+      console.error(err);
+      alert("전도인 저장에 실패했습니다: " + err.message);
     }
   });
 }
@@ -5946,16 +6966,21 @@ if (elements.adminEvDelete) {
       return;
     }
     try {
-      const res = await apiRequest("deleteEvangelist", { name });
-      if (!res.success) {
-        alert(res.message || "전도인 삭제에 실패했습니다.");
-        return;
-      }
-      state.data.evangelists = res.evangelists || [];
+      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+      
+      const { error } = await supabaseClient
+        .from("evangelists")
+        .delete()
+        .eq("name", name);
+        
+      if (error) throw error;
+      
+      await loadData();
       renderAdminPanel();
       setStatus("전도인이 삭제되었습니다.");
-    } catch (e) {
-      alert("전도인 삭제 중 오류가 발생했습니다.");
+    } catch (err) {
+      console.error(err);
+      alert("전도인 삭제에 실패했습니다: " + err.message);
     }
   });
 }
@@ -6006,16 +7031,31 @@ if (elements.evangelistList) {
         password: pwInput ? pwInput.value : ""
       };
       try {
-        const res = await apiRequest("upsertEvangelist", payload);
-        if (!res.success) {
-          alert(res.message || "전도인 저장에 실패했습니다.");
-          return;
-        }
-        state.data.evangelists = res.evangelists || [];
+        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+        
+        const dbData = {
+          name: payload.name,
+          gender: payload.gender,
+          is_deaf: !!payload.deaf,
+          role: payload.role || "전도인",
+          driver: !!payload.driver,
+          capacity: payload.capacity ? Number(payload.capacity) : 0,
+          spouse: payload.spouse
+        };
+        if (payload.password) dbData.password = payload.password;
+        
+        const { error } = await supabaseClient
+          .from("evangelists")
+          .upsert(dbData);
+          
+        if (error) throw error;
+        
+        await loadData();
         renderAdminPanel();
         setStatus("전도인이 추가되었습니다.");
       } catch (e) {
-        alert("전도인 저장 중 오류가 발생했습니다.");
+        console.error(e);
+        alert("전도인 저장 중 오류가 발생했습니다: " + e.message);
       }
       return;
     }
@@ -6042,32 +7082,52 @@ if (elements.evangelistList) {
         password: pwInput ? pwInput.value : ""
       };
       try {
-        const res = await apiRequest("upsertEvangelist", payload);
-        if (!res.success) {
-          alert(res.message || "전도인 저장에 실패했습니다.");
-          return;
-        }
-        state.data.evangelists = res.evangelists || [];
+        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+        
+        const dbData = {
+          name: payload.name,
+          gender: payload.gender,
+          is_deaf: !!payload.deaf,
+          role: payload.role || "전도인",
+          driver: !!payload.driver,
+          capacity: payload.capacity ? Number(payload.capacity) : 0,
+          spouse: payload.spouse
+        };
+        if (payload.password) dbData.password = payload.password;
+        
+        const { error } = await supabaseClient
+          .from("evangelists")
+          .upsert(dbData);
+          
+        if (error) throw error;
+        
+        await loadData();
         renderAdminPanel();
         setStatus("전도인 정보가 저장되었습니다.");
       } catch (e) {
-        alert("전도인 저장 중 오류가 발생했습니다.");
+        console.error(e);
+        alert("전도인 저장 중 오류가 발생했습니다: " + e.message);
       }
     } else if (action === "delete-ev") {
       if (!window.confirm(`${name} 전도인을 삭제하시겠습니까?`)) {
         return;
       }
       try {
-        const res = await apiRequest("deleteEvangelist", { name });
-        if (!res.success) {
-          alert(res.message || "전도인 삭제에 실패했습니다.");
-          return;
-        }
-        state.data.evangelists = res.evangelists || [];
+        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+        
+        const { error } = await supabaseClient
+          .from("evangelists")
+          .delete()
+          .eq("name", name);
+          
+        if (error) throw error;
+        
+        await loadData();
         renderAdminPanel();
         setStatus("전도인이 삭제되었습니다.");
       } catch (e) {
-        alert("전도인 삭제 중 오류가 발생했습니다.");
+        console.error(e);
+        alert("전도인 삭제 중 오류가 발생했습니다: " + e.message);
       }
     }
   });
@@ -6171,18 +7231,34 @@ if (elements.completionList) {
       button.disabled = true;
       setLoading(true, "구역카드를 저장하는 중...");
       try {
-        const res = await apiRequest("upsertCard", payload);
-        if (!res.success) {
-          alert(res.message || "구역카드 저장에 실패했습니다.");
-          return;
-        }
-        state.data.cards = res.cards || [];
+        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+        
+        const dbData = {
+          area_id: String(payload.areaId),
+          card_number: String(payload.cardNumber),
+          address: payload.address,
+          meet: !!payload.meet,
+          absent: !!payload.absent,
+          revisit: !!payload.revisit,
+          study: !!payload.study,
+          six_months: !!payload.sixMonths,
+          banned: !!payload.banned
+        };
+        
+        const { error } = await supabaseClient
+          .from("cards")
+          .upsert(dbData, { onConflict: "area_id, card_number" });
+          
+        if (error) throw error;
+        
+        await loadData();
         renderAreas();
         renderCards();
         renderAdminPanel();
         setStatus("구역카드가 저장되었습니다.");
       } catch (e) {
-        alert("구역카드 저장 중 오류가 발생했습니다.");
+        console.error(e);
+        alert("구역카드 저장 중 오류가 발생했습니다: " + e.message);
       } finally {
         button.textContent = originalText;
         button.disabled = false;
@@ -6201,23 +7277,30 @@ if (elements.completionList) {
       button.disabled = true;
       setLoading(true, "구역카드를 삭제하는 중...");
       try {
-        const res = await apiRequest("deleteCard", {
-          areaId,
-          cardNumber: baseCardNumber
-        });
-        if (!res.success) {
-          alert(res.message || "구역카드 삭제에 실패했습니다.");
-          return;
+        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+        // 1. Supabase에서 삭제/이동 처리
+        await deleteCardInSupabase(areaId, baseCardNumber);
+
+        // 2. Google Sheets에서 삭제/이동 처리 (동기화 유지)
+        try {
+          await apiRequest("deleteCard", {
+            areaId: String(areaId),
+            cardNumber: String(baseCardNumber)
+          });
+        } catch (gasErr) {
+          console.warn("GAS delete failed (non-critical):", gasErr);
         }
+
         await loadData();
         renderAreas();
         renderCards();
         renderAdminPanel();
         setStatus("구역카드가 삭제되었습니다.");
       } catch (e) {
-        alert("구역카드 삭제 중 오류가 발생했습니다.");
-      } finally {
-        button.textContent = originalText;
+        console.error(e);
+        alert("구역카드 삭제 중 오류가 발생했습니다: " + e.message);
+      } finally {        button.textContent = originalText;
         button.disabled = false;
         setLoading(false);
       }
@@ -6263,9 +7346,9 @@ if (elements.completionList) {
       }
       setLoading(true, "카드 상태 해제 중...");
       try {
-        const res = await apiRequest("updateCardFlags", payload);
+        const res = await updateCardFlagsInSupabase(areaId, baseCardNumber, payload);
         if (!res.success) {
-          alert(res.message || "상태 해제에 실패했습니다.");
+          alert("상태 해제에 실패했습니다.");
           return;
         }
         const found = state.data.cards.find(
@@ -6292,6 +7375,7 @@ if (elements.completionList) {
         renderAdminPanel();
         setStatus("카드 상태가 해제되었습니다.");
       } catch (e) {
+        console.error(e);
         alert("상태 해제 중 오류가 발생했습니다.");
       } finally {
         setLoading(false);
@@ -6320,6 +7404,17 @@ if (elements.deletedCardList) {
         }
         try {
           setLoading(true, "삭제된 카드를 복원하는 중...");
+
+          // 1. Supabase에서 복원 처리
+          if (supabaseClient) {
+            try {
+              await restoreDeletedCardInSupabase(areaId, cardNumber);
+            } catch (supaErr) {
+              console.warn("Supabase restore failed:", supaErr);
+            }
+          }
+
+          // 2. Google Sheets에서 복원 처리 (동기화)
           const res = await apiRequest("restoreDeletedCard", {
             areaId,
             cardNumber
@@ -6348,6 +7443,17 @@ if (elements.deletedCardList) {
         }
         try {
           setLoading(true, "삭제된 카드를 영구 삭제하는 중...");
+
+          // 1. Supabase에서 영구 삭제 처리
+          if (supabaseClient) {
+            try {
+              await purgeDeletedCardInSupabase(areaId, cardNumber);
+            } catch (supaErr) {
+              console.warn("Supabase purge failed:", supaErr);
+            }
+          }
+
+          // 2. Google Sheets에서 영구 삭제 처리 (동기화)
           const res = await apiRequest("purgeDeletedCard", {
             areaId,
             cardNumber
