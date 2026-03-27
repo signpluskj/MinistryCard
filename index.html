@@ -140,25 +140,26 @@
               <section id="admin-panel" class="panel admin-panel">
                 <div class="panel-body">
                   <div class="admin-grid">
-                    <div>
-                      <h3>구역카드 관리</h3>
-                      <div id="completion-list" class="list"></div>
-                    </div>
-                    <div>
-                      <h3>전도인 명단 관리</h3>
-                      <div class="admin-actions">
-                        <button id="admin-ev-add" type="button">전도인 추가/수정</button>
-                        <button id="admin-ev-delete" type="button">전도인 삭제</button>
-                      </div>
-                      <div id="evangelist-list" class="list"></div>
-                    </div>
-                    <div>
-                      <h3>방문금지/6개월 카드</h3>
-                      <div id="banned-card-list" class="list"></div>
-                    </div>
-                    <div>
-                      <h3>삭제 카드</h3>
-                      <div id="deleted-card-list" class="list"></div>
+                    <div id="admin-panel-content">
+                      <section id="admin-cards-section">
+                        <h3>구역카드 관리 (방문금지/6개월)</h3>
+                        <div id="admin-cards-list" class="list"></div>
+                      </section>
+
+                      <section id="admin-completions-section">
+                        <h3>완료 내역</h3>
+                        <div id="admin-completions-list" class="list"></div>
+                      </section>
+
+                      <section id="admin-evangelists-section">
+                        <h3>전도인 명단 관리</h3>
+                        <div id="admin-evangelist-list" class="list"></div>
+                      </section>
+
+                      <section id="admin-deleted-section">
+                        <h3>삭제된 카드 목록</h3>
+                        <div id="admin-deleted-card-list" class="list"></div>
+                      </section>
                     </div>
                   </div>
                 </div>
