@@ -40,11 +40,26 @@ const cancelServiceForArea = async (areaId) => {
   try {
     if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
 
+    // 마지막 완료 날짜 찾기
+    const { data: latestComp, error: compError } = await supabaseClient
+      .from("completions")
+      .select("end_date")
+      .eq("area_id", String(areaId))
+      .order("end_date", { ascending: false })
+      .limit(1);
+
+    if (compError) {
+      console.warn("Could not fetch last completion date:", compError);
+    }
+
+    const lastEndDate = (latestComp && latestComp.length > 0) ? latestComp[0].end_date : null;
+
     const { error } = await supabaseClient
       .from("areas")
       .update({
         start_date: null,
-        leader: null
+        leader: null,
+        end_date: lastEndDate // 이전 완료 날짜 복원
       })
       .eq("area_id", String(areaId));
 
@@ -80,6 +95,56 @@ const finishAreaWithoutVisits = async (areaId) => {
 
     const endDate = todayISO();
 
+    // 방문 기록이 없는 카드를 찾아 '부재'로 기록
+    const { data: areaCards, error: areaCardsError } = await supabaseClient
+      .from("cards")
+      .select("*")
+      .eq("area_id", areaId);
+
+    if (areaCardsError) throw areaCardsError;
+
+    const startDate = areaRow.start_date;
+    const unvisitedCards = areaCards.filter((c) => {
+      if (c.revisit || c.study || c.six_months || c.banned) return false;
+      if (!c.recent_visit_date) return true;
+      if (startDate) {
+        const rv = parseVisitDate(c.recent_visit_date);
+        const sd = parseVisitDate(startDate);
+        return rv && sd && rv < sd;
+      }
+      return false;
+    });
+
+    if (unvisitedCards.length > 0) {
+      const completionVisits = unvisitedCards.map((c) => ({
+        area_id: areaId,
+        card_number: c.card_number,
+        visit_date: endDate,
+        worker: `${state.user.name}`,
+        result: "부재",
+        note: "완료 처리"
+      }));
+
+      const { error: batchVisitError } = await supabaseClient
+        .from("visits")
+        .insert(completionVisits);
+
+      if (batchVisitError) throw batchVisitError;
+
+      // 카드 상태 업데이트
+      for (const c of unvisitedCards) {
+        await supabaseClient
+          .from("cards")
+          .update({
+            recent_visit_date: endDate,
+            absent: true,
+            meet: false
+          })
+          .eq("area_id", areaId)
+          .eq("card_number", c.card_number);
+      }
+    }
+
     const { error: updateError } = await supabaseClient
       .from("areas")
       .update({ end_date: endDate })
@@ -89,12 +154,12 @@ const finishAreaWithoutVisits = async (areaId) => {
 
     const { error: insertError } = await supabaseClient
       .from("completions")
-      .insert({
+      .upsert({
         area_id: areaId,
-        start_date: areaRow.start_date,
+        start_date: areaRow.start_date || endDate,
         end_date: endDate,
-        leader: areaRow.leader
-      });
+        leader: areaRow.leader || (state.user ? state.user.name : "시스템")
+      }, { onConflict: "area_id, end_date" });
 
     if (insertError) throw insertError;
 
@@ -146,8 +211,157 @@ const resetRecentVisits = async () => {
   }
 };
 
+const editCompletion = async (row) => {
+  const newStart = window.prompt("시작날짜를 입력해 주세요 (YYYY-MM-DD)", row["시작날짜"] || "");
+  if (newStart === null) return;
+  const newDone = window.prompt("완료날짜를 입력해 주세요 (YYYY-MM-DD)", row["완료날짜"] || "");
+  if (newDone === null) return;
+  const newLeader = window.prompt("인도자를 입력해 주세요", row["인도자"] || "");
+  if (newLeader === null) return;
+
+  setLoading(true, "완료 내역 수정 중...");
+  try {
+    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+    const { error } = await supabaseClient
+      .from("completions")
+      .update({
+        start_date: newStart || null,
+        end_date: newDone || null,
+        leader: newLeader || null
+      })
+      .eq("id", row.id);
+
+    if (error) throw error;
+
+    setStatus("완료 내역이 수정되었습니다.");
+    await loadData();
+    renderVisitsView();
+  } catch (err) {
+    console.error("Edit completion error:", err);
+    alert("수정에 실패했습니다: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const deleteCompletion = async (row) => {
+  if (!window.confirm("이 완료 내역을 삭제하시겠습니까?")) return;
+
+  setLoading(true, "완료 내역 삭제 중...");
+  try {
+    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+    const { error } = await supabaseClient
+      .from("completions")
+      .delete()
+      .eq("id", row.id);
+
+    if (error) throw error;
+
+    setStatus("완료 내역이 삭제되었습니다.");
+    await loadData();
+    renderVisitsView();
+  } catch (err) {
+    console.error("Delete completion error:", err);
+    alert("삭제에 실패했습니다: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const deleteVisit = async () => {
+  if (!state.editingVisit) return;
+  if (!window.confirm("이 방문 기록을 삭제하시겠습니까?")) return;
+
+  setLoading(true, "방문 기록 삭제 중...");
+  try {
+    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+    const { error: deleteError } = await supabaseClient
+      .from("visits")
+      .delete()
+      .eq("id", state.editingVisit.id);
+
+    if (deleteError) throw deleteError;
+
+    const { data: allVisits, error: visitsError } = await supabaseClient
+      .from("visits")
+      .select("*")
+      .eq("area_id", state.editingVisit.areaId)
+      .eq("card_number", state.editingVisit.cardNumber)
+      .order("visit_date", { ascending: false });
+
+    if (visitsError) throw visitsError;
+
+    const last = allVisits && allVisits.length ? allVisits[0] : null;
+    
+    // 6개월 및 방문금지는 과거 기록 중 하나라도 있으면 유지되는 특성이 있음 (기존 saveVisit 로직 참고)
+    const hasSixMonths = (allVisits || []).some(v => v.result === "6개월");
+    const hasBanned = (allVisits || []).some(v => v.result === "방문금지");
+
+    const { error: cardError } = await supabaseClient
+      .from("cards")
+      .update({
+        recent_visit_date: last ? last.visit_date : null,
+        meet: last ? last.result === "만남" : false,
+        absent: last ? last.result === "부재" : false,
+        revisit: last ? last.result === "재방" : false,
+        study: last ? last.result === "연구" : false,
+        invite: last ? last.result === "초대장" : false,
+        six_months: hasSixMonths,
+        banned: hasBanned
+      })
+      .eq("area_id", state.editingVisit.areaId)
+      .eq("card_number", state.editingVisit.cardNumber);
+
+    if (cardError) throw cardError;
+
+    setStatus("방문 기록이 삭제되었습니다.");
+    
+    if (last) {
+      // 삭제 후 남은 기록 중 가장 최근 기록을 자동으로 선택
+      state.editingVisit = {
+        id: last.id,
+        areaId: String(state.editingVisit.areaId),
+        cardNumber: String(state.editingVisit.cardNumber),
+        oldVisitDate: String(last.visit_date),
+        oldWorker: String(last.worker || ""),
+        oldResult: String(last.result || ""),
+        oldNote: String(last.note || "")
+      };
+
+      if (elements.visitTitle) elements.visitTitle.textContent = `카드 ${state.editingVisit.cardNumber} 방문 내역 수정`;
+      if (elements.visitDate) elements.visitDate.value = toISODate(last.visit_date);
+      if (elements.visitWorker) elements.visitWorker.value = last.worker || "";
+      if (elements.visitResult) elements.visitResult.value = last.result || "만남";
+      if (elements.visitNote) elements.visitNote.value = last.note || "";
+      
+      // 삭제 버튼 유지 (관리자 권한 확인은 이미 되어 있을 것이므로)
+      if (elements.visitDelete) elements.visitDelete.classList.remove("hidden");
+    } else {
+      // 남은 기록이 없으면 초기화
+      state.editingVisit = null;
+      if (elements.visitTitle) elements.visitTitle.textContent = "방문 내역 기록";
+      if (elements.visitDate) elements.visitDate.value = todayISO();
+      if (elements.visitWorker) elements.visitWorker.value = state.user ? state.user.name : "";
+      if (elements.visitResult) elements.visitResult.value = "만남";
+      if (elements.visitNote) elements.visitNote.value = "";
+      if (elements.visitDelete) elements.visitDelete.classList.add("hidden");
+    }
+
+    await loadData();
+    renderCards();
+  } catch (err) {
+    console.error("Delete visit error:", err);
+    alert("삭제에 실패했습니다: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
 const saveVisit = async (event) => {
-  event.preventDefault();
+  if (event) event.preventDefault();
   if (!state.selectedArea || !state.selectedCard) {
     return;
   }
@@ -255,9 +469,11 @@ const saveVisit = async (event) => {
         .eq("area_id", areaId)
         .single();
 
-      if (!areaRowError && areaRow.start_date && !areaRow.end_date) {
-        const completeDate = visitDate;
-        const leaderName = state.user.name;
+      // Ensure we save completion if not already done, even if start_date is missing
+      if (!areaRowError && !areaRow.end_date) {
+        const completeDate = visitDate || todayISO();
+        // 봉사 시작 시 등록된 인도자 이름을 유지, 없으면 현재 사용자
+        const leaderName = areaRow.leader || (state.user ? state.user.name : "시스템");
 
         await supabaseClient
           .from("areas")
@@ -266,12 +482,12 @@ const saveVisit = async (event) => {
 
         await supabaseClient
           .from("completions")
-          .insert({
+          .upsert({
             area_id: areaId,
-            start_date: areaRow.start_date,
+            start_date: areaRow.start_date || completeDate,
             end_date: completeDate,
             leader: leaderName
-          });
+          }, { onConflict: "area_id, end_date" });
 
         completeResult = true;
       }

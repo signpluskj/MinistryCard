@@ -49,6 +49,35 @@ const renderVisitsView = () => {
       if (memo.textContent) {
         item.appendChild(memo);
       }
+
+      const isAdmin = state.user && (state.user.role === "관리자" || state.user.role === "인도자");
+      if (isAdmin) {
+        const actions = document.createElement("div");
+        actions.className = "completion-item-actions";
+        actions.style.marginTop = "8px";
+        actions.style.display = "flex";
+        actions.style.gap = "8px";
+
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "수정";
+        editBtn.className = "btn-small";
+        editBtn.onclick = (e) => {
+          e.stopPropagation();
+          editCompletion(row);
+        };
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "삭제";
+        delBtn.className = "btn-small btn-danger";
+        delBtn.onclick = (e) => {
+          e.stopPropagation();
+          deleteCompletion(row);
+        };
+
+        actions.append(editBtn, delBtn);
+        item.appendChild(actions);
+      }
+
       list.appendChild(item);
     });
   }
@@ -70,6 +99,9 @@ const selectCard = (card) => {
   state.selectedCard = card;
   state.scrollToSelectedCard = true;
   state.editingVisit = null;
+  if (elements.visitDelete) {
+    elements.visitDelete.classList.add("hidden");
+  }
   elements.visitTitle.textContent = `카드 ${card["카드번호"]} 방문 기록`;
   elements.visitDate.value = todayISO();
   elements.visitWorker.value = state.user.name;

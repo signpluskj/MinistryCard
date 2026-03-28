@@ -27,12 +27,20 @@ const enterDashboard = async (user) => {
   elements.dashboard.classList.remove("hidden");
   await loadData();
   if (!state.expandedAreaId && state.filterArea === "all") {
-    const inProgressAreaId = getFirstInProgressArea();
-    if (inProgressAreaId) {
+    const inProgressAreas = getAllInProgressAreas();
+    if (inProgressAreas.length === 1) {
+      // 진행중 구역이 1개면 기존처럼 펼침
+      const inProgressAreaId = inProgressAreas[0];
       state.expandedAreaId = inProgressAreaId;
       state.filterArea = inProgressAreaId;
       state.selectedArea = inProgressAreaId;
       state.scrollAreaToTop = true;
+    } else if (inProgressAreas.length > 1) {
+      // 진행중 구역이 2개 이상이면 펼치지 않음
+      state.scrollAreaToTop = false;
+      state.expandedAreaId = null;
+      state.filterArea = "all";
+      state.selectedArea = null;
     }
   }
   renderAreas();
@@ -139,5 +147,3 @@ const logout = () => {
   elements.nameInput.value = "";
   elements.passwordInput.value = "";
 };
-
-tryAutoLogin();

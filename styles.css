@@ -40,6 +40,18 @@ body {
 .app-header h1 {
   margin: 0;
   font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.app-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  pointer-events: none; /* 아이콘은 클릭을 무시함 */
+  border-radius: 6px;
 }
 
 .menu-button {
@@ -211,51 +223,13 @@ body {
 }
 
 .car-assign-body {
-  display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 12px;
-  padding: 2px 6px 6px;
-}
-
-.car-assign-left {
-  border-right: 1px solid #e2e8f0;
-  padding-right: 12px;
-}
-
-.car-assign-left .list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: calc(100vh - 200px);
-  overflow-y: auto;
-}
-
-.ev-item {
-  padding: 6px 7px;
-  border-radius: 6px;
-  border: 1px solid #e2e8f0;
-  cursor: pointer;
-  font-size: 12px;
-  background: #ffffff;
-  min-height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 60px;
-  margin: 0 auto;
-  white-space: nowrap;
-}
-
-.ev-item.selected {
-  background: #1f6feb;
-  color: #ffffff;
-  border-color: #1f6feb;
+  padding: 8px 12px;
 }
 
 .car-assign-right {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .car-assign-selected {
@@ -1345,11 +1319,6 @@ button.secondary {
   box-shadow: 0 0 0 2px rgba(31, 111, 235, 0.45);
 }
 
-.card-unvisited {
-  border-color: #f97316;
-  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.4);
-}
-
 .card.card-active-progress {
   border-color: #f97316;
   background: #fffbeb;
@@ -1442,7 +1411,7 @@ button.secondary {
 }
 
 .card-car-info {
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .car-select-list {
@@ -1460,6 +1429,9 @@ button.secondary {
   color: #111827;
   font-size: 13px;
   cursor: pointer;
+  flex: 1 1 calc(50% - 8px); /* 2열 배치를 기본으로 하되 유연하게 조절 */
+  min-width: 120px;
+  text-align: center;
 }
 
 .car-select-btn:hover,
@@ -1920,7 +1892,7 @@ button.secondary {
 
 .admin-table-wide th:nth-child(1),
 .admin-table-wide td:nth-child(1) {
-  width: 11.1%;
+  width: 13.3%;
 }
 
 .admin-table-wide th:nth-child(2),
@@ -1935,7 +1907,7 @@ button.secondary {
 
 .admin-table-wide th:nth-child(4),
 .admin-table-wide td:nth-child(4) {
-  width: 11.1%;
+  width: 13.3%;
 }
 
 .admin-table-wide th:nth-child(5),
@@ -1952,17 +1924,12 @@ button.secondary {
 
 .admin-table-wide th:nth-child(7),
 .admin-table-wide td:nth-child(7) {
-  width: 11.1%;
+  width: 13.3%;
 }
 
 .admin-table-wide th:nth-child(8),
 .admin-table-wide td:nth-child(8) {
-  width: 11.1%;
-}
-
-.admin-table-wide th:nth-child(9),
-.admin-table-wide td:nth-child(9) {
-  width: 18.5%;
+  width: 11.9%;
 }
 
 .admin-actions-cell {
@@ -1971,8 +1938,8 @@ button.secondary {
 
 .admin-actions-cell button {
   display: inline-block;
-  margin-right: 4px;
-  padding: 4px 8px;
+  margin-right: 2px;
+  padding: 4px 3px;
   font-size: 11px;
 }
 
@@ -2065,6 +2032,12 @@ button.secondary {
 .car-member.tap-selected {
   border-color: #1f6feb;
   box-shadow: 0 0 0 2px rgba(31, 111, 235, 0.5);
+}
+
+.car-member.is-driver {
+  background-color: #fff7ed;
+  border-color: #fdba74;
+  color: #9a3412;
 }
 
 .car-card-list {

@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MinistryCard 배포 설정</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #f3f4f6;
+        color: #111827;
+      }
+      .wrap {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 24px;
+      }
+      .card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 14px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      label {
+        font-size: 13px;
+        font-weight: 700;
+      }
+      input,
+      textarea {
+        width: 100%;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 14px;
+        padding: 10px;
+        background: #fff;
+      }
+      textarea {
+        min-height: 140px;
+        resize: vertical;
+        font-family: Consolas, monospace;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      button {
+        border: 1px solid #1d4ed8;
+        color: #1d4ed8;
+        background: #eff6ff;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .step {
+        margin: 0;
+        padding-left: 18px;
+      }
+      .step li {
+        margin: 5px 0;
+      }
+      .ok {
+        font-size: 13px;
+        color: #166534;
+      }
+      @media (max-width: 768px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>MinistryCard 배포 설정 패키지</h1>
+
+      <section class="card">
+        <h2>1) 설정값 입력</h2>
+        <div class="grid">
+          <div class="field">
+            <label for="siteName">회중/사이트 이름</label>
+            <input id="siteName" placeholder="예: 문경주 회중" />
+          </div>
+          <div class="field">
+            <label for="supabaseUrl">SUPABASE_URL</label>
+            <input id="supabaseUrl" placeholder="https://xxxx.supabase.co" />
+          </div>
+          <div class="field">
+            <label for="supabaseKey">SUPABASE_KEY (publishable/anon)</label>
+            <input id="supabaseKey" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." />
+          </div>
+          <div class="field">
+            <label for="apiUrl">Apps Script Web App URL (API_URL)</label>
+            <input id="apiUrl" placeholder="https://script.google.com/macros/s/.../exec" />
+          </div>
+          <div class="field">
+            <label for="sheetId">Google Spreadsheet ID</label>
+            <input id="sheetId" placeholder="스프레드시트 URL 중 /d/.../ 의 ID" />
+          </div>
+          <div class="field">
+            <label for="timezone">Script Timezone 권장</label>
+            <input id="timezone" value="Asia/Seoul" />
+          </div>
+        </div>
+        <div class="actions" style="margin-top: 10px">
+          <button id="genBtn">설정 스니펫 생성</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>2) config.js 생성 결과</h2>
+        <textarea id="configOut"></textarea>
+        <div class="actions">
+          <button data-copy="configOut">복사</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>3) Apps Script 상단 설정</h2>
+        <textarea id="gasOut"></textarea>
+        <div class="actions">
+          <button data-copy="gasOut">복사</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>4) Supabase 초기화 SQL</h2>
+        <textarea id="sqlOut"></textarea>
+        <div class="actions">
+          <button data-copy="sqlOut">복사</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>5) Google Sheets 시트 구성</h2>
+        <ol class="step">
+          <li>새 스프레드시트 생성 후 아래 이름의 시트를 만듭니다.</li>
+          <li>첫 행 헤더를 정확히 입력합니다.</li>
+          <li>Apps Script에 Code.gs 업로드 후 위 SHEET_ID를 적용합니다.</li>
+          <li>웹 앱 배포 후 URL을 config.js의 API_URL로 입력합니다.</li>
+        </ol>
+        <textarea id="sheetSpec" readonly></textarea>
+      </section>
+
+      <section class="card">
+        <h2>6) 배포 순서</h2>
+        <ol class="step">
+          <li>Supabase SQL Editor에서 초기화 SQL 전체 실행</li>
+          <li>Authentication에서 Email 비활성(선택), RLS 정책 확인</li>
+          <li>Google Sheets + Apps Script 배포(Web app, 누구나 접근 가능)</li>
+          <li>생성된 config.js를 프로젝트 루트의 config.js에 반영</li>
+          <li>정적 호스팅 배포 후 동작 확인(로그인/구역/방문 저장)</li>
+        </ol>
+        <p class="ok">서비스 키(service_role)는 클라이언트 파일에 넣지 않습니다.</p>
+      </section>
+    </div>
+
+    <script>
+      const sqlTemplate = `create extension if not exists pgcrypto;
+
+create table if not exists areas (
+  area_id text primary key,
+  start_date date,
+  end_date date,
+  leader text,
+  start_date_backup date,
+  end_date_backup date,
+  leader_backup text
+);
+
+create table if not exists cards (
+  id uuid primary key default gen_random_uuid(),
+  area_id text not null,
+  card_number text not null,
+  address text,
+  detail_address text,
+  memo text,
+  town text,
+  recent_visit_date date,
+  prev_visit_date date,
+  meet boolean default false,
+  absent boolean default false,
+  revisit boolean default false,
+  study boolean default false,
+  six_months boolean default false,
+  banned boolean default false,
+  invite boolean default false,
+  car_id text,
+  assignment_date date,
+  regular_worker text,
+  created_at timestamptz default now(),
+  unique(area_id, card_number)
+);
+
+create table if not exists deleted_cards (
+  id uuid primary key default gen_random_uuid(),
+  area_id text not null,
+  card_number text not null,
+  address text,
+  deleted_at timestamptz default now(),
+  unique(area_id, card_number)
+);
+
+create table if not exists evangelists (
+  id uuid primary key default gen_random_uuid(),
+  name text unique not null,
+  password text,
+  role text default '전도인',
+  gender text,
+  is_deaf boolean default false,
+  driver boolean default false,
+  capacity int default 0,
+  spouse text
+);
+
+create table if not exists visits (
+  id uuid primary key default gen_random_uuid(),
+  area_id text not null,
+  card_number text not null,
+  visit_date date not null,
+  worker text,
+  result text,
+  note text,
+  created_at timestamptz default now()
+);
+create index if not exists idx_visits_area_card_date on visits(area_id, card_number, visit_date desc);
+
+create table if not exists completions (
+  id uuid primary key default gen_random_uuid(),
+  area_id text not null,
+  start_date date,
+  end_date date not null,
+  leader text,
+  created_at timestamptz default now(),
+  unique(area_id, end_date)
+);
+
+create table if not exists car_assignments (
+  id uuid primary key default gen_random_uuid(),
+  date date not null,
+  slot text default '오전',
+  car_id text,
+  driver text,
+  passengers jsonb default '[]'::jsonb,
+  created_at timestamptz default now()
+);
+
+create table if not exists volunteer_weeks (
+  id uuid primary key default gen_random_uuid(),
+  week_start date unique not null,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists invite_campaign (
+  id uuid primary key default gen_random_uuid(),
+  status text not null default 'active',
+  start_date date not null,
+  end_date date,
+  memo text,
+  created_at timestamptz default now()
+);
+
+create table if not exists site_config (
+  id uuid primary key default gen_random_uuid(),
+  config_key text unique not null,
+  config_value jsonb not null,
+  updated_at timestamptz default now()
+);
+
+insert into site_config(config_key, config_value)
+values ('super_admin', '{"id":"admin","pass":"admin1234"}'::jsonb)
+on conflict (config_key) do nothing;
+
+alter table areas enable row level security;
+alter table cards enable row level security;
+alter table deleted_cards enable row level security;
+alter table evangelists enable row level security;
+alter table visits enable row level security;
+alter table completions enable row level security;
+alter table car_assignments enable row level security;
+alter table volunteer_weeks enable row level security;
+alter table invite_campaign enable row level security;
+alter table site_config enable row level security;
+
+drop policy if exists p_all_areas on areas;
+drop policy if exists p_all_cards on cards;
+drop policy if exists p_all_deleted_cards on deleted_cards;
+drop policy if exists p_all_evangelists on evangelists;
+drop policy if exists p_all_visits on visits;
+drop policy if exists p_all_completions on completions;
+drop policy if exists p_all_car_assignments on car_assignments;
+drop policy if exists p_all_volunteer_weeks on volunteer_weeks;
+drop policy if exists p_all_invite_campaign on invite_campaign;
+drop policy if exists p_all_site_config on site_config;
+
+create policy p_all_areas on areas for all to anon, authenticated using (true) with check (true);
+create policy p_all_cards on cards for all to anon, authenticated using (true) with check (true);
+create policy p_all_deleted_cards on deleted_cards for all to anon, authenticated using (true) with check (true);
+create policy p_all_evangelists on evangelists for all to anon, authenticated using (true) with check (true);
+create policy p_all_visits on visits for all to anon, authenticated using (true) with check (true);
+create policy p_all_completions on completions for all to anon, authenticated using (true) with check (true);
+create policy p_all_car_assignments on car_assignments for all to anon, authenticated using (true) with check (true);
+create policy p_all_volunteer_weeks on volunteer_weeks for all to anon, authenticated using (true) with check (true);
+create policy p_all_invite_campaign on invite_campaign for all to anon, authenticated using (true) with check (true);
+create policy p_all_site_config on site_config for all to anon, authenticated using (true) with check (true);`;
+
+      const sheetSpecText = `필수 시트 이름 / 헤더
+
+1) 구역번호
+구역번호 | 시작날짜 | 완료날짜 | 인도자 | 시작날짜백업 | 완료날짜백업 | 인도자백업
+
+2) 구역카드
+구역번호 | 카드번호 | 주소 | 상세주소 | 정보 | 동 | 최근방문일 | 이전봉사일 | 만남 | 부재 | 재방 | 연구 | 6개월 | 방문금지 | 차량 | 배정날짜 | 초대장 | 정기방문자
+
+3) 방문내역
+구역번호 | 카드번호 | 방문날짜 | 전도인 | 결과 | 메모
+
+4) 완료내역
+구역번호 | 시작날짜 | 완료날짜 | 인도자 | 비고
+
+5) 전도인명단
+이름 | 비밀번호 | 역할 | 성별 | 농인 | 운전자 | 차량 | 부부
+
+6) 차량배정
+날짜 | 시간대 | 차량 | 이름 | 역할
+
+7) 봉사신청
+주차시작 | 데이터
+
+8) 초대장배부
+상태 | 시작일 | 종료일 | 메모
+
+9) 삭제
+구역번호 | 카드번호 | 주소 | 삭제일`;
+
+      const q = (id) => document.getElementById(id);
+
+      const gen = () => {
+        const supabaseUrl = q("supabaseUrl").value.trim();
+        let supabaseKey = q("supabaseKey").value.trim();
+        const apiUrl = q("apiUrl").value.trim();
+        const sheetId = q("sheetId").value.trim();
+        const tz = q("timezone").value.trim() || "Asia/Seoul";
+
+        // 접두어 제거 로직 추가
+        if (supabaseKey.startsWith("sb_publishable_")) {
+          supabaseKey = supabaseKey.replace("sb_publishable_", "");
+        }
+        if (supabaseKey.startsWith("sb_secret_")) {
+          supabaseKey = supabaseKey.replace("sb_secret_", "");
+        }
+
+        q("configOut").value = `window.__ENV__ = {
+  API_URL: "${apiUrl}",
+  SUPABASE_URL: "${supabaseUrl}",
+  SUPABASE_KEY: "${supabaseKey}"
+};`;
+
+        q("gasOut").value = `var SHEET_ID = "${sheetId}";
+
+function getSpreadsheet() {
+  return SpreadsheetApp.openById(SHEET_ID);
+}
+
+function getScriptTimezone() {
+  return "${tz}";
+}`;
+      };
+
+      document.getElementById("genBtn").addEventListener("click", gen);
+      document.querySelectorAll("[data-copy]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const id = btn.getAttribute("data-copy");
+          const el = document.getElementById(id);
+          if (!el) return;
+          try {
+            await navigator.clipboard.writeText(el.value);
+            btn.textContent = "복사됨";
+            setTimeout(() => {
+              btn.textContent = "복사";
+            }, 1000);
+          } catch (e) {}
+        });
+      });
+
+      q("sqlOut").value = sqlTemplate;
+      q("sheetSpec").value = sheetSpecText;
+      gen();
+    </script>
+  </body>
+</html>
