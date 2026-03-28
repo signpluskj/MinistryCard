@@ -16,22 +16,7 @@ const renderCompletionOverlayList = () => {
     }
     byArea[areaId].push(row);
   });
-  const areaIds = Object.keys(byArea).sort((a, b) => {
-    const sheetAreaOrder = (state.data.areas || []).map((row) =>
-      String(row["구역번호"])
-    );
-    const idxA = sheetAreaOrder.indexOf(String(a));
-    const idxB = sheetAreaOrder.indexOf(String(b));
-    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-    if (idxA !== -1) return -1;
-    if (idxB !== -1) return 1;
-    const na = Number(a);
-    const nb = Number(b);
-    if (!Number.isNaN(na) && !Number.isNaN(nb)) {
-      return na - nb;
-    }
-    return String(a).localeCompare(String(b), "ko-KR");
-  });
+  const areaIds = Object.keys(byArea).sort((a, b) => compareAreaIds(a, b, state.areaOrder));
   if (!areaIds.length) {
     const empty = document.createElement("div");
     empty.className = "list-item";
@@ -68,15 +53,59 @@ const renderCompletionOverlayList = () => {
         list.forEach((row) => {
           const entry = document.createElement("div");
           entry.className = "card-history-item";
+          entry.style.display = "flex";
+          entry.style.justifyContent = "space-between";
+          entry.style.alignItems = "center";
+          entry.style.gap = "8px";
+
+          const textSpan = document.createElement("span");
           const startText = row["시작날짜"] ? formatDate(row["시작날짜"]) : "";
           const doneText = row["완료날짜"] ? formatDate(row["완료날짜"]) : "";
-          const title =
+          const titleText =
             startText && doneText
               ? `${startText} → ${doneText}`
               : doneText || startText || "";
-          const leader = row["인도자"] ? ` · 인도자: ${row["인도자"]}` : "";
-          const memo = row["비고"] ? ` · ${row["비고"]}` : "";
-          entry.textContent = `${title}${leader}${memo}`;
+          const leaderText = row["인도자"] ? ` · 인도자: ${row["인도자"]}` : "";
+          const memoText = row["비고"] ? ` · ${row["비고"]}` : "";
+          textSpan.textContent = `${titleText}${leaderText}${memoText}`;
+          entry.appendChild(textSpan);
+
+          const isAdmin = state.user && (state.user.role === "관리자" || state.user.role === "인도자");
+          if (isAdmin) {
+            const actions = document.createElement("div");
+            actions.className = "completion-item-actions";
+            actions.style.display = "flex";
+            actions.style.gap = "4px";
+            actions.style.flexShrink = "0";
+
+            const editBtn = document.createElement("button");
+            editBtn.textContent = "수정";
+            editBtn.className = "btn-small";
+            editBtn.style.padding = "2px 6px";
+            editBtn.style.fontSize = "inherit";
+            editBtn.onclick = (e) => {
+              e.stopPropagation();
+              editCompletion(row);
+            };
+
+            const delBtn = document.createElement("button");
+            delBtn.textContent = "삭제";
+            delBtn.className = "btn-small btn-danger";
+            delBtn.style.backgroundColor = "#ef4444";
+            delBtn.style.color = "white";
+            delBtn.style.border = "none";
+            delBtn.style.borderRadius = "4px";
+            delBtn.style.padding = "2px 6px";
+            delBtn.style.fontSize = "inherit";
+            delBtn.onclick = (e) => {
+              e.stopPropagation();
+              deleteCompletion(row);
+            };
+
+            actions.append(editBtn, delBtn);
+            entry.appendChild(actions);
+          }
+          
           detail.appendChild(entry);
         });
       }
@@ -94,30 +123,12 @@ const renderCompletionOverlayList = () => {
   });
 };
 
-const compareAreaIds = (a, b) => {
-  const areas = state.data.areas || [];
-  const findIndex = (id) =>
-    areas.findIndex((row) => {
-      const raw = String(row["구역번호"] || "").trim();
-      return raw === String(id) || raw.startsWith(String(id) + " ");
-    });
-  const idxA = findIndex(a);
-  const idxB = findIndex(b);
-  if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-  if (idxA !== -1) return -1;
-  if (idxB !== -1) return 1;
-  const na = Number(a),
-    nb = Number(b);
-  if (!isNaN(na) && !isNaN(nb)) return na - nb;
-  return String(a).localeCompare(String(b), "ko-KR");
-};
-
 const renderAdminCards = () => {
   const box = document.getElementById("admin-cards-list");
   if (!box) return;
   box.innerHTML = "";
   const byAreaCards = groupCardsByArea();
-  const areaIds = Object.keys(byAreaCards).sort((a, b) => compareAreaIds(a, b));
+  const areaIds = Object.keys(byAreaCards).sort((a, b) => compareAreaIds(a, b, state.areaOrder));
   const selectedAreaId = state.adminCardsAreaId;
 
   areaIds.forEach((areaId) => {
@@ -215,11 +226,15 @@ const renderAdminCompletions = () => {
   completions.forEach((c) => {
     const div = document.createElement("div");
     div.className = "list-item";
-    div.style.position = "relative";
-    
+    div.style.display = "flex";
+    div.style.justifyContent = "space-between";
+    div.style.alignItems = "flex-start";
+    div.style.gap = "8px";
+
     const content = document.createElement("div");
+    content.style.flex = "1";
     content.innerHTML = `
-      <div style="display: flex; justify-content: space-between; padding-right: 60px;">
+      <div style="display: flex; justify-content: space-between;">
         <strong>${c["구역번호"]}</strong>
         <span>${formatDate(c["완료날짜"])}</span>
       </div>
@@ -229,25 +244,25 @@ const renderAdminCompletions = () => {
 
     if (canEdit) {
       const actions = document.createElement("div");
-      actions.style.position = "absolute";
-      actions.style.top = "10px";
-      actions.style.right = "10px";
       actions.style.display = "flex";
       actions.style.gap = "5px";
+      actions.style.flexShrink = "0";
 
       const editBtn = document.createElement("button");
       editBtn.textContent = "수정";
       editBtn.className = "admin-btn-small";
       editBtn.style.padding = "2px 6px";
-      editBtn.style.fontSize = "11px";
+      editBtn.style.fontSize = "inherit";
       editBtn.addEventListener("click", () => editCompletion(c));
 
       const delBtn = document.createElement("button");
       delBtn.textContent = "삭제";
       delBtn.className = "admin-btn-small";
       delBtn.style.padding = "2px 6px";
-      delBtn.style.fontSize = "11px";
+      delBtn.style.fontSize = "inherit";
       delBtn.style.backgroundColor = "#ef4444";
+      delBtn.style.color = "white";
+      delBtn.style.border = "none";
       delBtn.addEventListener("click", () => deleteCompletion(c));
 
       actions.append(editBtn, delBtn);
@@ -339,7 +354,7 @@ const renderAdminDeletedCards = () => {
   });
 
   Object.keys(byArea)
-    .sort((a, b) => compareAreaIds(a, b))
+    .sort((a, b) => compareAreaIds(a, b, state.areaOrder))
     .forEach((areaId) => {
       const item = document.createElement("div");
       item.className = "list-item";

@@ -921,6 +921,7 @@ if (elements.closeCompletion) {
   elements.closeCompletion.addEventListener("click", () => {
     elements.completionOverlay.classList.add("hidden");
     document.body.style.overflow = "";
+    state.currentMenu = "cards";
   });
 }
 
@@ -929,6 +930,7 @@ if (elements.completionOverlay) {
     if (event.target === elements.completionOverlay) {
       elements.completionOverlay.classList.add("hidden");
       document.body.style.overflow = "";
+      state.currentMenu = "cards";
     }
   });
 }

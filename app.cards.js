@@ -147,22 +147,7 @@ const renderCards = () => {
       const aa = String(a["구역번호"] || "");
       const ab = String(b["구역번호"] || "");
       if (aa !== ab) {
-        const order = (state.areaOrder && state.areaOrder.length > 0) 
-          ? state.areaOrder 
-          : ["춘천", "가평", "화천", "양구", "홍천", "찾기봉사"];
-        const idxA = order.indexOf(aa);
-        const idxB = order.indexOf(ab);
-        
-        // 커스텀 정렬 순서 우선 적용
-        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-        if (idxA !== -1) return -1;
-        if (idxB !== -1) return 1;
-
-        // 커스텀 순서에 없는 지역은 숫자/문자열 정렬
-        const na = Number(aa);
-        const nb = Number(ab);
-        if (!isNaN(na) && !isNaN(nb)) return na - nb;
-        return aa.localeCompare(ab, "ko-KR");
+        return compareAreaIds(aa, ab, state.areaOrder);
       }
     }
 

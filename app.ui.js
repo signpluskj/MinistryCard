@@ -31,6 +31,15 @@ const renderVisitsView = () => {
     completions.forEach((row) => {
       const item = document.createElement("div");
       item.className = "list-item";
+      item.style.display = "flex";
+      item.style.flexDirection = "column";
+
+      const headerRow = document.createElement("div");
+      headerRow.style.display = "flex";
+      headerRow.style.justifyContent = "space-between";
+      headerRow.style.alignItems = "center";
+      headerRow.style.gap = "8px";
+
       const title = document.createElement("div");
       const startText = row["시작날짜"] ? formatDate(row["시작날짜"]) : "";
       const doneText = row["완료날짜"] ? formatDate(row["완료날짜"]) : "";
@@ -38,29 +47,20 @@ const renderVisitsView = () => {
         startText && doneText
           ? `${startText} → ${doneText}`
           : doneText || startText || "";
-      const leader = document.createElement("div");
-      leader.textContent = row["인도자"] ? `인도자: ${row["인도자"]}` : "";
-      const memo = document.createElement("div");
-      memo.textContent = row["비고"] || "";
-      item.appendChild(title);
-      if (leader.textContent) {
-        item.appendChild(leader);
-      }
-      if (memo.textContent) {
-        item.appendChild(memo);
-      }
+      headerRow.appendChild(title);
 
       const isAdmin = state.user && (state.user.role === "관리자" || state.user.role === "인도자");
       if (isAdmin) {
         const actions = document.createElement("div");
         actions.className = "completion-item-actions";
-        actions.style.marginTop = "8px";
         actions.style.display = "flex";
         actions.style.gap = "8px";
 
         const editBtn = document.createElement("button");
         editBtn.textContent = "수정";
         editBtn.className = "btn-small";
+        editBtn.style.fontSize = "inherit";
+        editBtn.style.padding = "2px 6px";
         editBtn.onclick = (e) => {
           e.stopPropagation();
           editCompletion(row);
@@ -69,19 +69,34 @@ const renderVisitsView = () => {
         const delBtn = document.createElement("button");
         delBtn.textContent = "삭제";
         delBtn.className = "btn-small btn-danger";
+        delBtn.style.fontSize = "inherit";
+        delBtn.style.padding = "2px 6px";
         delBtn.onclick = (e) => {
           e.stopPropagation();
           deleteCompletion(row);
         };
 
         actions.append(editBtn, delBtn);
-        item.appendChild(actions);
+        headerRow.appendChild(actions);
+      }
+      item.appendChild(headerRow);
+
+      const leader = document.createElement("div");
+      leader.textContent = row["인도자"] ? `인도자: ${row["인도자"]}` : "";
+      const memo = document.createElement("div");
+      memo.textContent = row["비고"] || "";
+      
+      if (leader.textContent) {
+        item.appendChild(leader);
+      }
+      if (memo.textContent) {
+        item.appendChild(memo);
       }
 
       list.appendChild(item);
     });
   }
-  elements.cardListHome.appendChild(list);
+  elements.cardList.appendChild(list);
 };
 
 const selectArea = (areaId) => {

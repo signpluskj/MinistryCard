@@ -212,37 +212,87 @@ const resetRecentVisits = async () => {
 };
 
 const editCompletion = async (row) => {
-  const newStart = window.prompt("시작날짜를 입력해 주세요 (YYYY-MM-DD)", row["시작날짜"] || "");
-  if (newStart === null) return;
-  const newDone = window.prompt("완료날짜를 입력해 주세요 (YYYY-MM-DD)", row["완료날짜"] || "");
-  if (newDone === null) return;
-  const newLeader = window.prompt("인도자를 입력해 주세요", row["인도자"] || "");
-  if (newLeader === null) return;
+  const overlay = document.createElement("div");
+  overlay.className = "area-overlay";
+  overlay.style.zIndex = "3000";
 
-  setLoading(true, "완료 내역 수정 중...");
-  try {
-    if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+  const content = document.createElement("div");
+  content.className = "area-overlay-content";
+  content.style.maxWidth = "320px";
+  content.style.margin = "auto";
+  content.style.borderRadius = "8px";
 
-    const { error } = await supabaseClient
-      .from("completions")
-      .update({
-        start_date: newStart || null,
-        end_date: newDone || null,
-        leader: newLeader || null
-      })
-      .eq("id", row.id);
+  const header = document.createElement("div");
+  header.className = "area-overlay-header";
+  header.innerHTML = `<span>완료 내역 수정</span><button class="icon-button" type="button">✕</button>`;
+  
+  const body = document.createElement("div");
+  body.className = "panel-body";
+  body.style.padding = "16px";
+  
+  body.innerHTML = `
+    <label class="field">
+      <span>시작날짜</span>
+      <input type="date" id="edit-comp-start" value="${row["시작날짜"] || ""}">
+    </label>
+    <label class="field">
+      <span>완료날짜</span>
+      <input type="date" id="edit-comp-done" value="${row["완료날짜"] || ""}">
+    </label>
+    <label class="field">
+      <span>인도자</span>
+      <input type="text" id="edit-comp-leader" value="${row["인도자"] || ""}">
+    </label>
+    <div style="display:flex; gap:8px; margin-top:16px;">
+      <button id="edit-comp-save" style="flex:1;">저장</button>
+      <button id="edit-comp-cancel" style="flex:1; background-color:#64748b;">취소</button>
+    </div>
+  `;
 
-    if (error) throw error;
+  content.appendChild(header);
+  content.appendChild(body);
+  overlay.appendChild(content);
+  document.body.appendChild(overlay);
 
-    setStatus("완료 내역이 수정되었습니다.");
-    await loadData();
-    renderVisitsView();
-  } catch (err) {
-    console.error("Edit completion error:", err);
-    alert("수정에 실패했습니다: " + err.message);
-  } finally {
-    setLoading(false);
-  }
+  const close = () => overlay.remove();
+  header.querySelector("button").onclick = close;
+  body.querySelector("#edit-comp-cancel").onclick = close;
+
+  body.querySelector("#edit-comp-save").onclick = async () => {
+    const newStart = body.querySelector("#edit-comp-start").value;
+    const newDone = body.querySelector("#edit-comp-done").value;
+    const newLeader = body.querySelector("#edit-comp-leader").value.trim();
+
+    close();
+    setLoading(true, "완료 내역 수정 중...");
+    try {
+      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+      const { error } = await supabaseClient
+        .from("completions")
+        .update({
+          start_date: newStart || null,
+          end_date: newDone || null,
+          leader: newLeader || null
+        })
+        .eq("id", row.id);
+
+      if (error) throw error;
+
+      setStatus("완료 내역이 수정되었습니다.");
+      await loadData();
+      if (state.currentMenu === "visits" && elements.completionOverlay && !elements.completionOverlay.classList.contains("hidden")) {
+        renderCompletionOverlayList();
+      } else {
+        renderVisitsView();
+      }
+    } catch (err) {
+      console.error("Edit completion error:", err);
+      alert("수정에 실패했습니다: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 };
 
 const deleteCompletion = async (row) => {
@@ -261,7 +311,11 @@ const deleteCompletion = async (row) => {
 
     setStatus("완료 내역이 삭제되었습니다.");
     await loadData();
-    renderVisitsView();
+    if (state.currentMenu === "visits" && elements.completionOverlay && !elements.completionOverlay.classList.contains("hidden")) {
+      renderCompletionOverlayList();
+    } else {
+      renderVisitsView();
+    }
   } catch (err) {
     console.error("Delete completion error:", err);
     alert("삭제에 실패했습니다: " + err.message);

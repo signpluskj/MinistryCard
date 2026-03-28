@@ -532,6 +532,7 @@ const loadData = async () => {
           memo: inviteCampaign[0].memo
         } : null;
         state.data.completions = (completions || []).map(c => ({
+          id: c.id,
           "구역번호": c.area_id, "시작날짜": c.start_date, "완료날짜": c.end_date, "인도자": c.leader
         }));
 

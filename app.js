@@ -1619,7 +1619,20 @@ const renderCarAssignPopup = () => {
       }
     });
 
-    picker.appendChild(saveBtn);
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "volunteer-admin-add-close";
+    closeBtn.textContent = "닫기";
+    closeBtn.addEventListener("click", () => {
+      picker.remove();
+    });
+
+    const actionRow = document.createElement("div");
+    actionRow.className = "volunteer-admin-add-actions";
+    actionRow.appendChild(saveBtn);
+    actionRow.appendChild(closeBtn);
+    picker.appendChild(actionRow);
+
     signupActionContainer.after(picker);
   });
 
@@ -1752,7 +1765,11 @@ const refreshAll = async () => {
     renderMyCarInfo();
     renderVolunteerOverlay();
     if (state.currentMenu === "visits" && state.completionExpandedAreaId) {
-      renderVisitsView();
+      if (elements.completionOverlay && !elements.completionOverlay.classList.contains("hidden")) {
+        renderCompletionOverlayList();
+      } else {
+        renderVisitsView();
+      }
     }
     if (state.currentMenu === "car-assign") {
       await setCarAssignDate(state.carAssignDate || todayISO());
@@ -2922,42 +2939,7 @@ const renderAreas = () => {
        hasTodayInProgress = true;
      }
   });
-  const CUSTOM_AREA_ORDER = (state.areaOrder && state.areaOrder.length > 0) 
-    ? state.areaOrder 
-    : ["춘천", "가평", "화천", "양구", "홍천", "찾기봉사"];
-  const areaIds = Object.keys(grouped).sort((a, b) => {
-    const order = (state.areaOrder && state.areaOrder.length > 0) 
-      ? state.areaOrder 
-      : ["춘천", "가평", "화천", "양구", "홍천", "찾기봉사"];
-      
-    // 접두사(지역명) 찾기 (가평 1 -> 가평)
-    const getOrderIndex = (id) => {
-      const sId = String(id);
-      for (let i = 0; i < order.length; i++) {
-        if (sId.startsWith(order[i])) return i;
-      }
-      return -1;
-    };
-
-    const idxA = getOrderIndex(a);
-    const idxB = getOrderIndex(b);
-    
-    if (idxA !== -1 && idxB !== -1) {
-      if (idxA !== idxB) return idxA - idxB;
-      // 같은 지역명 내에서는 숫자/가나다 순 정렬
-      const na = Number(a.replace(/[^0-9]/g, ''));
-      const nb = Number(b.replace(/[^0-9]/g, ''));
-      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
-      return a.localeCompare(b, "ko-KR");
-    }
-    if (idxA !== -1) return -1;
-    if (idxB !== -1) return 1;
-    
-    const na = Number(a);
-    const nb = Number(b);
-    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
-    return String(a).localeCompare(String(b), "ko-KR");
-  });
+  const areaIds = Object.keys(grouped).sort((a, b) => compareAreaIds(a, b, state.areaOrder));
   areaIds.forEach((areaId) => {
     const createItem = (withAssignButton) => {
       const item = document.createElement("div");

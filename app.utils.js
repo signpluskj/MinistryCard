@@ -1,4 +1,10 @@
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
 
 const parseVisitDate = (value) => {
   if (!value) {
@@ -113,6 +119,38 @@ const parseCardNumber = (value) => {
     }
   }
   return { raw, area: null, num: null };
+};
+
+const compareAreaIds = (a, b, areaOrder = []) => {
+  const order = (areaOrder && areaOrder.length > 0)
+    ? areaOrder
+    : ["춘천", "가평", "화천", "양구", "홍천", "찾기봉사"];
+
+  const getOrderIndex = (id) => {
+    const sId = String(id);
+    for (let i = 0; i < order.length; i++) {
+      if (sId.startsWith(order[i])) return i;
+    }
+    return -1;
+  };
+
+  const idxA = getOrderIndex(a);
+  const idxB = getOrderIndex(b);
+
+  if (idxA !== -1 && idxB !== -1) {
+    if (idxA !== idxB) return idxA - idxB;
+    const na = Number(a.replace(/[^0-9]/g, ''));
+    const nb = Number(b.replace(/[^0-9]/g, ''));
+    if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+    return a.localeCompare(b, "ko-KR");
+  }
+  if (idxA !== -1) return -1;
+  if (idxB !== -1) return 1;
+
+  const na = Number(a);
+  const nb = Number(b);
+  if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+  return String(a).localeCompare(String(b), "ko-KR");
 };
 
 const compareCardNumbers = (a, b) => {

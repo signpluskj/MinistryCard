@@ -1429,7 +1429,7 @@ button.secondary {
   color: #111827;
   font-size: 13px;
   cursor: pointer;
-  flex: 1 1 calc(50% - 8px); /* 2열 배치를 기본으로 하되 유연하게 조절 */
+  flex: 0 0 calc(50% - 4px); /* Don't grow, don't shrink, stay 50% width minus half gap */
   min-width: 120px;
   text-align: center;
 }
