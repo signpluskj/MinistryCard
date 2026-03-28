@@ -1,4 +1,4 @@
-elements.saveApiUrl.addEventListener("click", saveApiUrl);
+elements.saveConfig.addEventListener("click", saveConfig);
 if (elements.syncToSupabase) {
   elements.syncToSupabase.addEventListener("click", migrateToSupabase);
 }
@@ -9,8 +9,9 @@ if (elements.backupToExcel) {
   elements.backupToExcel.addEventListener("click", exportToExcel);
 }
 elements.loginButton.addEventListener("click", login);
-if (elements.appTitle) {
-  elements.appTitle.addEventListener("click", () => {
+const titleTextEl = document.getElementById("app-title-text");
+if (titleTextEl) {
+  titleTextEl.addEventListener("click", () => {
     if (!state.user) {
       return;
     }
@@ -52,6 +53,9 @@ elements.filterVisit.addEventListener("change", () => {
   renderCards();
 });
 elements.visitForm.addEventListener("submit", saveVisit);
+if (elements.visitDelete) {
+  elements.visitDelete.addEventListener("click", deleteVisit);
+}
 
 if (elements.userInfo) {
   elements.userInfo.addEventListener("click", () => {
@@ -118,8 +122,7 @@ if (elements.carAssignSelected) {
       (n) => n !== selection.name
     );
     cars.forEach((car) => {
-      const first = (car.members || [])[0];
-      car.driver = first || "";
+      car.driver = (car.members && car.members.length > 0) ? car.members[0] : "";
     });
     state.carAssignments = cars;
     renderCarAssignPopup();
@@ -294,69 +297,7 @@ if (elements.visitClearBanned) {
   });
 }
 
-elements.carAssignEvangelistList.addEventListener("click", (event) => {
-  const item = event.target.closest(".ev-item");
-  if (!item) {
-    return;
-  }
-  const role = item.dataset.role || "";
-  if (role === "temp-add") {
-    const input = window.prompt("임시로 추가할 이름을 입력해 주세요.");
-    if (!input) {
-      return;
-    }
-    const name = input.trim();
-    if (!name) {
-      return;
-    }
-    const normalizedName = normalizeAssignmentName(name);
-    if (!state.participantsToday.includes(normalizedName)) {
-      state.participantsToday.push(normalizedName);
-    }
-    renderSelectedParticipants();
-    renderCarAssignmentsPanel();
-    const listEl = elements.carAssignEvangelistList;
-    if (listEl) {
-      const existing = listEl.querySelector(
-        '.ev-item[data-name="' + name + '"]'
-      );
-      if (!existing) {
-        const tempItem = document.createElement("div");
-        tempItem.className = "ev-item selected";
-        tempItem.dataset.name = name;
-        tempItem.textContent = name;
-        const addBtn = listEl.querySelector(".ev-temp-add");
-        if (addBtn && addBtn.parentElement === listEl) {
-          listEl.insertBefore(tempItem, addBtn);
-        } else {
-          listEl.appendChild(tempItem);
-        }
-      }
-    }
-    return;
-  }
-  const name = normalizeAssignmentName(item.dataset.name || "");
-  if (!name) {
-    return;
-  }
-  const exists = state.participantsToday.includes(name);
-  if (exists) {
-    state.participantsToday = state.participantsToday.filter((n) => n !== name);
-    item.classList.remove("selected");
-    const cars = state.carAssignments || [];
-    cars.forEach((car) => {
-      car.members = (car.members || []).filter(
-        (n) => normalizeAssignmentName(n) !== name
-      );
-    });
-    state.carAssignments = cars;
-  } else {
-    state.participantsToday.push(name);
-    item.classList.add("selected");
-  }
-  renderSelectedParticipants();
-  renderCarAssignmentsPanel();
-});
+// carAssignEvangelistList removed
 
 elements.carAssignPanel.addEventListener("dragstart", (event) => {
   const target = event.target;
@@ -1073,396 +1014,432 @@ if (elements.adminCarEdit) {
   });
 }
 
-if (elements.evangelistList) {
-  elements.evangelistList.addEventListener("click", async (event) => {
-    const button = event.target.closest("button[data-action]");
-    if (!button) {
-      return;
-    }
-    const action = button.dataset.action;
-    const rowEl = button.closest("tr");
-    if (!rowEl) {
-      return;
-    }
-    const isNew = rowEl.dataset.new === "true";
-    const getInput = (field) =>
-      rowEl.querySelector('input[data-field="' + field + '"]') ||
-      rowEl.querySelector('select[data-field="' + field + '"]');
-    if (action === "create-ev") {
-      const nameInput = getInput("name");
-      const name = nameInput ? nameInput.value.trim() : "";
-      if (!name) {
-        alert("이름을 입력해 주세요.");
-        return;
-      }
-      const genderInput = getInput("gender");
-      const deafInput = getInput("deaf");
-      const roleInput = getInput("role");
-      const driverInput = getInput("driver");
-      const capInput = getInput("capacity");
-      const spouseInput = getInput("spouse");
-      const pwInput = getInput("password");
-      const payload = {
-        name,
-        gender: genderInput ? genderInput.value.trim() : "",
-        deaf: deafInput ? !!deafInput.checked : false,
-        role: roleInput ? roleInput.value.trim() : "",
-        driver: driverInput ? driverInput.checked : false,
-        capacity: capInput && capInput.value ? String(Number(capInput.value) || 0) : "",
-        spouse: spouseInput ? spouseInput.value.trim() : "",
-        password: pwInput ? pwInput.value : ""
-      };
-      try {
-        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
-
-        const dbData = {
-          name: payload.name,
-          gender: payload.gender,
-          is_deaf: !!payload.deaf,
-          role: payload.role || "전도인",
-          driver: !!payload.driver,
-          capacity: payload.capacity ? Number(payload.capacity) : 0,
-          spouse: payload.spouse
-        };
-        if (payload.password) dbData.password = payload.password;
-
-        const { error } = await supabaseClient
-          .from("evangelists")
-          .upsert(dbData);
-
-        if (error) throw error;
-
-        await loadData();
-        renderAdminPanel();
-        setStatus("전도인이 추가되었습니다.");
-      } catch (e) {
-        console.error(e);
-        alert("전도인 저장 중 오류가 발생했습니다: " + e.message);
-      }
-      return;
-    }
-    const name = rowEl.dataset.name || button.dataset.name || "";
+const handleEvangelistAction = async (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) {
+    return;
+  }
+  const action = button.dataset.action;
+  const rowEl = button.closest("tr");
+  if (!rowEl) {
+    return;
+  }
+  const isNew = rowEl.dataset.new === "true";
+  const getInput = (field) =>
+    rowEl.querySelector('input[data-field="' + field + '"]') ||
+    rowEl.querySelector('select[data-field="' + field + '"]');
+  if (action === "create-ev") {
+    const nameInput = getInput("name");
+    const name = nameInput ? nameInput.value.trim() : "";
     if (!name) {
-      alert("이름 정보를 찾을 수 없습니다.");
+      alert("이름을 입력해 주세요.");
       return;
     }
-    if (action === "save-ev") {
-      const genderInput = getInput("gender");
-      const roleInput = getInput("role");
-      const driverInput = getInput("driver");
-      const capInput = getInput("capacity");
-      const spouseInput = getInput("spouse");
-      const pwInput = getInput("password");
-      const payload = {
-        name,
-        gender: genderInput ? genderInput.value.trim() : "",
-        deaf: getInput("deaf") ? !!getInput("deaf").checked : false,
-        role: roleInput ? roleInput.value.trim() : "",
-        driver: driverInput ? driverInput.checked : false,
-        capacity: capInput && capInput.value ? String(Number(capInput.value) || 0) : "",
-        spouse: spouseInput ? spouseInput.value.trim() : "",
-        password: pwInput ? pwInput.value : ""
+    const genderInput = getInput("gender");
+    const deafInput = getInput("deaf");
+    const roleInput = getInput("role");
+    const driverInput = getInput("driver");
+    const capInput = getInput("capacity");
+    const spouseInput = getInput("spouse");
+    const pwInput = getInput("password");
+    const payload = {
+      name,
+      gender: genderInput ? genderInput.value.trim() : "",
+      deaf: deafInput ? !!deafInput.checked : false,
+      role: roleInput ? roleInput.value.trim() : "",
+      driver: driverInput ? driverInput.checked : false,
+      capacity: capInput && capInput.value ? String(Number(capInput.value) || 0) : "",
+      spouse: spouseInput ? spouseInput.value.trim() : "",
+      password: pwInput ? pwInput.value : ""
+    };
+    try {
+      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+      const dbData = {
+        name: payload.name,
+        gender: payload.gender,
+        is_deaf: !!payload.deaf,
+        role: payload.role || "전도인",
+        driver: !!payload.driver,
+        capacity: payload.capacity ? Number(payload.capacity) : 0,
+        spouse: payload.spouse
       };
-      try {
-        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+      if (payload.password) dbData.password = payload.password;
 
-        const dbData = {
-          name: payload.name,
-          gender: payload.gender,
-          is_deaf: !!payload.deaf,
-          role: payload.role || "전도인",
-          driver: !!payload.driver,
-          capacity: payload.capacity ? Number(payload.capacity) : 0,
-          spouse: payload.spouse
-        };
-        if (payload.password) dbData.password = payload.password;
+      const { error } = await supabaseClient
+        .from("evangelists")
+        .upsert(dbData);
 
-        const { error } = await supabaseClient
-          .from("evangelists")
-          .upsert(dbData);
+      if (error) throw error;
 
-        if (error) throw error;
-
-        await loadData();
-        renderAdminPanel();
-        setStatus("전도인 정보가 저장되었습니다.");
-      } catch (e) {
-        console.error(e);
-        alert("전도인 저장 중 오류가 발생했습니다: " + e.message);
-      }
-    } else if (action === "delete-ev") {
-      if (!window.confirm(`${name} 전도인을 삭제하시겠습니까?`)) {
-        return;
-      }
-      try {
-        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
-
-        const { error } = await supabaseClient
-          .from("evangelists")
-          .delete()
-          .eq("name", name);
-
-        if (error) throw error;
-
-        await loadData();
-        renderAdminPanel();
-        setStatus("전도인이 삭제되었습니다.");
-      } catch (e) {
-        console.error(e);
-        alert("전도인 삭제 중 오류가 발생했습니다: " + e.message);
-      }
+      await loadData();
+      renderAdminPanel();
+      setStatus("전도인이 추가되었습니다.");
+    } catch (e) {
+      console.error(e);
+      alert("전도인 저장 중 오류가 발생했습니다: " + e.message);
     }
-  });
+    return;
+  }
+
+  const name = rowEl.dataset.name || button.dataset.name || "";
+  if (!name && action !== "create-ev") {
+    alert("이름 정보를 찾을 수 없습니다.");
+    return;
+  }
+
+  if (action === "save-ev") {
+    const genderInput = getInput("gender");
+    const roleInput = getInput("role");
+    const driverInput = getInput("driver");
+    const capInput = getInput("capacity");
+    const spouseInput = getInput("spouse");
+    const pwInput = getInput("password");
+    const payload = {
+      name,
+      gender: genderInput ? genderInput.value.trim() : "",
+      deaf: getInput("deaf") ? !!getInput("deaf").checked : false,
+      role: roleInput ? roleInput.value.trim() : "",
+      driver: driverInput ? driverInput.checked : false,
+      capacity: capInput && capInput.value ? String(Number(capInput.value) || 0) : "",
+      spouse: spouseInput ? spouseInput.value.trim() : "",
+      password: pwInput ? pwInput.value : ""
+    };
+    try {
+      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+      const dbData = {
+        name: payload.name,
+        gender: payload.gender,
+        is_deaf: !!payload.deaf,
+        role: payload.role || "전도인",
+        driver: !!payload.driver,
+        capacity: payload.capacity ? Number(payload.capacity) : 0,
+        spouse: payload.spouse
+      };
+      if (payload.password) dbData.password = payload.password;
+
+      const { error } = await supabaseClient
+        .from("evangelists")
+        .upsert(dbData);
+
+      if (error) throw error;
+
+      await loadData();
+      renderAdminPanel();
+      setStatus("전도인 정보가 저장되었습니다.");
+    } catch (e) {
+      console.error(e);
+      alert("전도인 저장 중 오류가 발생했습니다: " + e.message);
+    }
+  } else if (action === "delete-ev") {
+    if (!window.confirm(`${name} 전도인을 삭제하시겠습니까?`)) {
+      return;
+    }
+    try {
+      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+      const { error } = await supabaseClient
+        .from("evangelists")
+        .delete()
+        .eq("name", name);
+
+      if (error) throw error;
+
+      await loadData();
+      renderAdminPanel();
+      setStatus("전도인이 삭제되었습니다.");
+    } catch (e) {
+      console.error(e);
+      alert("전도인 삭제 중 오류가 발생했습니다: " + e.message);
+    }
+  }
+};
+
+if (elements.evangelistList) {
+  elements.evangelistList.addEventListener("click", handleEvangelistAction);
 }
 
-if (elements.completionList) {
-  elements.completionList.addEventListener("click", async (event) => {
-    const button = event.target.closest("button[data-card-action]");
-    if (!button) {
+if (elements.adminEvangelistList) {
+  elements.adminEvangelistList.addEventListener("click", handleEvangelistAction);
+}
+
+const handleCardAction = async (event) => {
+  const button = event.target.closest("button[data-card-action]") || event.target.closest("button[data-action]");
+  if (!button) {
+    return;
+  }
+  const action = button.dataset.cardAction || button.dataset.action;
+  const rowEl =
+    button.closest("tr") || button.closest(".admin-card-row");
+  if (!rowEl) {
+    return;
+  }
+  const tableEl = rowEl.closest("table");
+  const areaId =
+    rowEl.dataset.areaId ||
+    (tableEl && tableEl.dataset.areaId) ||
+    state.adminCardsAreaId;
+  if (!areaId) {
+    alert("구역 정보를 찾을 수 없습니다.");
+    return;
+  }
+  const getInput = (field) =>
+    rowEl.querySelector('input[data-field="' + field + '"]');
+  if (action === "create-card") {
+    const cardInput = getInput("cardNumber");
+    const cardNumber = cardInput ? cardInput.value.trim() : "";
+    if (!cardNumber) {
+      alert("카드번호를 입력해 주세요.");
       return;
     }
-    const action = button.dataset.cardAction;
-    const rowEl =
-      button.closest("tr") || button.closest(".admin-card-row");
-    if (!rowEl) {
+    const addressInput = getInput("address");
+    const detailInput = getInput("detailAddress");
+    const memoInput = getInput("memo");
+    const townInput = getInput("town");
+    const payload = {
+      areaId,
+      cardNumber,
+      isNew: true,
+      town: townInput ? townInput.value : "",
+      address: addressInput ? addressInput.value : "",
+      detailAddress: detailInput ? detailInput.value : "",
+      memo: memoInput ? memoInput.value : "",
+      sixMonths: getInput("sixMonths")?.checked || false,
+      banned: getInput("banned")?.checked || false,
+      revisit: getInput("revisit")?.checked || false,
+      study: getInput("study")?.checked || false
+    };
+    const originalText = button.textContent;
+    button.textContent = "저장 중...";
+    button.disabled = true;
+    setLoading(true, "구역카드를 추가하는 중...");
+    try {
+      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+      const dbData = {
+        area_id: String(payload.areaId),
+        card_number: String(payload.cardNumber),
+        town: payload.town || "",
+        address: payload.address || "",
+        detail_address: payload.detailAddress || "",
+        memo: payload.memo || "",
+        meet: false,
+        absent: false,
+        revisit: !!payload.revisit,
+        study: !!payload.study,
+        six_months: !!payload.sixMonths,
+        banned: !!payload.banned
+      };
+
+      const { error } = await supabaseClient
+        .from("cards")
+        .insert(dbData);
+
+      if (error) throw error;
+
+      await loadData();
+      renderAreas();
+      renderCards();
+      renderAdminPanel();
+      setStatus("구역카드가 추가되었습니다.");
+    } catch (e) {
+      console.error(e);
+      alert("구역카드 저장 중 오류가 발생했습니다: " + e.message);
+    } finally {
+      button.textContent = originalText;
+      button.disabled = false;
+      setLoading(false);
+    }
+    return;
+  }
+  const baseCardNumber = button.dataset.cardNumber || rowEl.dataset.cardNumber || "";
+  if (!baseCardNumber) {
+    alert("카드번호 정보를 찾을 수 없습니다.");
+    return;
+  }
+  if (action === "save-card") {
+    const addressInput = getInput("address");
+    const detailInput = getInput("detailAddress");
+    const memoInput = getInput("memo");
+    const townInput = getInput("town");
+    const payload = {
+      areaId,
+      cardNumber: baseCardNumber,
+      town: townInput ? townInput.value : "",
+      address: addressInput ? addressInput.value : "",
+      detailAddress: detailInput ? detailInput.value : "",
+      memo: memoInput ? memoInput.value : "",
+      sixMonths: getInput("sixMonths")?.checked || false,
+      banned: getInput("banned")?.checked || false,
+      revisit: getInput("revisit")?.checked || false,
+      study: getInput("study")?.checked || false
+    };
+    const originalText = button.textContent;
+    button.textContent = "저장 중...";
+    button.disabled = true;
+    setLoading(true, "구역카드를 저장하는 중...");
+    try {
+      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+      const dbData = {
+        area_id: String(payload.areaId),
+        card_number: String(payload.cardNumber),
+        town: payload.town || "",
+        address: payload.address,
+        detail_address: payload.detailAddress || "",
+        memo: payload.memo || "",
+        meet: !!payload.meet,
+        absent: !!payload.absent,
+        revisit: !!payload.revisit,
+        study: !!payload.study,
+        six_months: !!payload.sixMonths,
+        banned: !!payload.banned
+      };
+
+      const { error } = await supabaseClient
+        .from("cards")
+        .upsert(dbData, { onConflict: "area_id, card_number" });
+
+      if (error) throw error;
+
+      await loadData();
+      renderAreas();
+      renderCards();
+      renderAdminPanel();
+      setStatus("구역카드가 저장되었습니다.");
+    } catch (e) {
+      console.error(e);
+      alert("구역카드 저장 중 오류가 발생했습니다: " + e.message);
+    } finally {
+      button.textContent = originalText;
+      button.disabled = false;
+      setLoading(false);
+    }
+  } else if (action === "delete-card") {
+    if (
+      !window.confirm(
+        `구역 ${areaId}, 카드 ${baseCardNumber}를 삭제하시겠습니까?`
+      )
+    ) {
       return;
     }
-    const tableEl = rowEl.closest("table");
-    const areaId =
-      rowEl.dataset.areaId ||
-      (tableEl && tableEl.dataset.areaId) ||
-      state.adminCardsAreaId;
-    if (!areaId) {
-      alert("구역 정보를 찾을 수 없습니다.");
+    const originalText = button.textContent;
+    button.textContent = "삭제 중...";
+    button.disabled = true;
+    setLoading(true, "구역카드를 삭제하는 중...");
+    try {
+      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+
+      await deleteCardInSupabase(areaId, baseCardNumber);
+
+      try {
+        await apiRequest("deleteCard", {
+          areaId: String(areaId),
+          cardNumber: String(baseCardNumber)
+        });
+      } catch (gasErr) {
+        console.warn("GAS delete failed (non-critical):", gasErr);
+      }
+
+      await loadData();
+      renderAreas();
+      renderCards();
+      renderAdminPanel();
+      setStatus("구역카드가 삭제되었습니다.");
+    } catch (e) {
+      console.error(e);
+      alert("구역카드 삭제 중 오류가 발생했습니다: " + e.message);
+    } finally {
+      button.textContent = originalText;
+      button.disabled = false;
+      setLoading(false);
+    }
+  } else if (action === "clear-flags") {
+    const cards = state.data.cards || [];
+    const target = cards.find(
+      (card) =>
+        String(card["구역번호"]) === String(areaId) &&
+        String(card["카드번호"]) === String(baseCardNumber)
+    );
+    if (!target) {
+      alert("카드를 찾을 수 없습니다.");
       return;
     }
-    const getInput = (field) =>
-      rowEl.querySelector('input[data-field="' + field + '"]');
-    if (action === "create-card") {
-      const cardInput = getInput("cardNumber");
-      const cardNumber = cardInput ? cardInput.value.trim() : "";
-      if (!cardNumber) {
-        alert("카드번호를 입력해 주세요.");
+    const flags = {
+      revisit: isTrueValue(target["재방"]),
+      study: isTrueValue(target["연구"]),
+      sixMonths: isTrueValue(target["6개월"]),
+      banned: isTrueValue(target["방문금지"])
+    };
+    if (!flags.revisit && !flags.study && !flags.sixMonths && !flags.banned) {
+      alert("해제할 표시가 없습니다.");
+      return;
+    }
+    const payload = { areaId, cardNumber: baseCardNumber };
+    if (flags.revisit && window.confirm("재방 표시를 해제할까요?")) {
+      payload.revisit = false;
+    }
+    if (flags.study && window.confirm("연구 표시를 해제할까요?")) {
+      payload.study = false;
+    }
+    if (flags.sixMonths && window.confirm("6개월 표시를 해제할까요?")) {
+      payload.sixMonths = false;
+    }
+    if (flags.banned && window.confirm("방문금지 표시를 해제할까요?")) {
+      payload.banned = false;
+    }
+    const hasChange = Object.keys(payload).some(
+      (key) => !["areaId", "cardNumber"].includes(key)
+    );
+    if (!hasChange) {
+      return;
+    }
+    setLoading(true, "카드 상태 해제 중...");
+    try {
+      const res = await updateCardFlagsInSupabase(areaId, baseCardNumber, payload);
+      if (!res.success) {
+        alert("상태 해제에 실패했습니다.");
         return;
       }
-      const addressInput = getInput("address");
-      const detailInput = getInput("detailAddress");
-      const memoInput = getInput("memo");
-      const townInput = getInput("town");
-      const payload = {
-        areaId,
-        cardNumber,
-        isNew: true,
-        town: townInput ? townInput.value : "",
-        address: addressInput ? addressInput.value : "",
-        detailAddress: detailInput ? detailInput.value : "",
-        memo: memoInput ? memoInput.value : "",
-        sixMonths: getInput("sixMonths")?.checked || false,
-        banned: getInput("banned")?.checked || false,
-        revisit: getInput("revisit")?.checked || false,
-        study: getInput("study")?.checked || false
-      };
-      const originalText = button.textContent;
-      button.textContent = "저장 중...";
-      button.disabled = true;
-      setLoading(true, "구역카드를 추가하는 중...");
-      try {
-        const res = await apiRequest("upsertCard", payload);
-        if (!res.success) {
-          alert(res.message || "구역카드 저장에 실패했습니다.");
-          return;
-        }
-        state.data.cards = res.cards || [];
-        renderAreas();
-        renderCards();
-        renderAdminPanel();
-        setStatus("구역카드가 추가되었습니다.");
-      } catch (e) {
-        alert("구역카드 저장 중 오류가 발생했습니다.");
-      } finally {
-        button.textContent = originalText;
-        button.disabled = false;
-        setLoading(false);
-      }
-      return;
-    }
-    const baseCardNumber = rowEl.dataset.cardNumber || "";
-    if (!baseCardNumber) {
-      alert("카드번호 정보를 찾을 수 없습니다.");
-      return;
-    }
-    if (action === "save-card") {
-      const addressInput = getInput("address");
-      const detailInput = getInput("detailAddress");
-      const memoInput = getInput("memo");
-      const townInput = getInput("town");
-      const payload = {
-        areaId,
-        cardNumber: baseCardNumber,
-        town: townInput ? townInput.value : "",
-        address: addressInput ? addressInput.value : "",
-        detailAddress: detailInput ? detailInput.value : "",
-        memo: memoInput ? memoInput.value : "",
-        sixMonths: getInput("sixMonths")?.checked || false,
-        banned: getInput("banned")?.checked || false,
-        revisit: getInput("revisit")?.checked || false,
-        study: getInput("study")?.checked || false
-      };
-      const originalText = button.textContent;
-      button.textContent = "저장 중...";
-      button.disabled = true;
-      setLoading(true, "구역카드를 저장하는 중...");
-      try {
-        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
-
-        const dbData = {
-          area_id: String(payload.areaId),
-          card_number: String(payload.cardNumber),
-          address: payload.address,
-          meet: !!payload.meet,
-          absent: !!payload.absent,
-          revisit: !!payload.revisit,
-          study: !!payload.study,
-          six_months: !!payload.sixMonths,
-          banned: !!payload.banned
-        };
-
-        const { error } = await supabaseClient
-          .from("cards")
-          .upsert(dbData, { onConflict: "area_id, card_number" });
-
-        if (error) throw error;
-
-        await loadData();
-        renderAreas();
-        renderCards();
-        renderAdminPanel();
-        setStatus("구역카드가 저장되었습니다.");
-      } catch (e) {
-        console.error(e);
-        alert("구역카드 저장 중 오류가 발생했습니다: " + e.message);
-      } finally {
-        button.textContent = originalText;
-        button.disabled = false;
-        setLoading(false);
-      }
-    } else if (action === "delete-card") {
-      if (
-        !window.confirm(
-          `구역 ${areaId}, 카드 ${baseCardNumber}를 삭제하시겠습니까?`
-        )
-      ) {
-        return;
-      }
-      const originalText = button.textContent;
-      button.textContent = "삭제 중...";
-      button.disabled = true;
-      setLoading(true, "구역카드를 삭제하는 중...");
-      try {
-        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
-
-        await deleteCardInSupabase(areaId, baseCardNumber);
-
-        try {
-          await apiRequest("deleteCard", {
-            areaId: String(areaId),
-            cardNumber: String(baseCardNumber)
-          });
-        } catch (gasErr) {
-          console.warn("GAS delete failed (non-critical):", gasErr);
-        }
-
-        await loadData();
-        renderAreas();
-        renderCards();
-        renderAdminPanel();
-        setStatus("구역카드가 삭제되었습니다.");
-      } catch (e) {
-        console.error(e);
-        alert("구역카드 삭제 중 오류가 발생했습니다: " + e.message);
-      } finally {
-        button.textContent = originalText;
-        button.disabled = false;
-        setLoading(false);
-      }
-    } else if (action === "clear-flags") {
-      const cards = state.data.cards || [];
-      const target = cards.find(
+      const found = state.data.cards.find(
         (card) =>
           String(card["구역번호"]) === String(areaId) &&
           String(card["카드번호"]) === String(baseCardNumber)
       );
-      if (!target) {
-        alert("카드를 찾을 수 없습니다.");
-        return;
-      }
-      const flags = {
-        revisit: isTrueValue(target["재방"]),
-        study: isTrueValue(target["연구"]),
-        sixMonths: isTrueValue(target["6개월"]),
-        banned: isTrueValue(target["방문금지"])
-      };
-      if (!flags.revisit && !flags.study && !flags.sixMonths && !flags.banned) {
-        alert("해제할 표시가 없습니다.");
-        return;
-      }
-      const payload = { areaId, cardNumber: baseCardNumber };
-      if (flags.revisit && window.confirm("재방 표시를 해제할까요?")) {
-        payload.revisit = false;
-      }
-      if (flags.study && window.confirm("연구 표시를 해제할까요?")) {
-        payload.study = false;
-      }
-      if (flags.sixMonths && window.confirm("6개월 표시를 해제할까요?")) {
-        payload.sixMonths = false;
-      }
-      if (flags.banned && window.confirm("방문금지 표시를 해제할까요?")) {
-        payload.banned = false;
-      }
-      const hasChange = Object.keys(payload).some(
-        (key) => !["areaId", "cardNumber"].includes(key)
-      );
-      if (!hasChange) {
-        return;
-      }
-      setLoading(true, "카드 상태 해제 중...");
-      try {
-        const res = await updateCardFlagsInSupabase(areaId, baseCardNumber, payload);
-        if (!res.success) {
-          alert("상태 해제에 실패했습니다.");
-          return;
+      if (found) {
+        if ("revisit" in res) {
+          found["재방"] = !!res.revisit;
         }
-        const found = state.data.cards.find(
-          (card) =>
-            String(card["구역번호"]) === String(areaId) &&
-            String(card["카드번호"]) === String(baseCardNumber)
-        );
-        if (found) {
-          if ("revisit" in res) {
-            found["재방"] = !!res.revisit;
-          }
-          if ("study" in res) {
-            found["연구"] = !!res.study;
-          }
-          if ("sixMonths" in res) {
-            found["6개월"] = !!res.sixMonths;
-          }
-          if ("banned" in res) {
-            found["방문금지"] = !!res.banned;
-          }
+        if ("study" in res) {
+          found["연구"] = !!res.study;
         }
-        renderAreas();
-        renderCards();
-        renderAdminPanel();
-        setStatus("카드 상태가 해제되었습니다.");
-      } catch (e) {
-        console.error(e);
-        alert("상태 해제 중 오류가 발생했습니다.");
-      } finally {
-        setLoading(false);
+        if ("sixMonths" in res) {
+          found["6개월"] = !!res.sixMonths;
+        }
+        if ("banned" in res) {
+          found["방문금지"] = !!res.banned;
+        }
       }
+      renderAreas();
+      renderCards();
+      renderAdminPanel();
+      setStatus("카드 상태가 해제되었습니다.");
+    } catch (e) {
+      console.error(e);
+      alert("상태 해제 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
     }
-  });
+  }
+};
+
+if (elements.completionList) {
+  elements.completionList.addEventListener("click", handleCardAction);
+}
+
+if (elements.adminCardsList) {
+  elements.adminCardsList.addEventListener("click", handleCardAction);
 }
 
 if (elements.deletedCardList) {
@@ -1486,29 +1463,38 @@ if (elements.deletedCardList) {
         try {
           setLoading(true, "삭제된 카드를 복원하는 중...");
 
+          let supabaseSuccess = false;
           if (supabaseClient) {
             try {
               await restoreDeletedCardInSupabase(areaId, cardNumber);
+              supabaseSuccess = true;
             } catch (supaErr) {
               console.warn("Supabase restore failed:", supaErr);
             }
           }
 
-          const res = await apiRequest("restoreDeletedCard", {
-            areaId,
-            cardNumber
-          });
-          if (!res.success) {
-            alert(res.message || "삭제 카드 복원에 실패했습니다.");
+          if (state.apiUrl) {
+            const res = await apiRequest("restoreDeletedCard", {
+              areaId,
+              cardNumber
+            });
+            if (!res.success && !supabaseSuccess) {
+              alert(res.message || "삭제 카드 복원에 실패했습니다.");
+              return;
+            }
+          } else if (!supabaseSuccess) {
+            alert("삭제 카드 복원에 실패했습니다. (Supabase/GAS 모두 실패)");
             return;
           }
+
           await loadData();
           renderAreas();
           renderCards();
           renderAdminPanel();
           setStatus("삭제된 카드가 복원되었습니다.");
         } catch (e) {
-          alert("삭제 카드 복원 중 오류가 발생했습니다.");
+          console.error(e);
+          alert("삭제 카드 복원 중 오류가 발생했습니다: " + e.message);
         } finally {
           setLoading(false);
         }
@@ -1523,27 +1509,35 @@ if (elements.deletedCardList) {
         try {
           setLoading(true, "삭제된 카드를 영구 삭제하는 중...");
 
+          let supabaseSuccess = false;
           if (supabaseClient) {
             try {
               await purgeDeletedCardInSupabase(areaId, cardNumber);
+              supabaseSuccess = true;
             } catch (supaErr) {
               console.warn("Supabase purge failed:", supaErr);
             }
           }
 
-          const res = await apiRequest("purgeDeletedCard", {
-            areaId,
-            cardNumber
-          });
-          if (!res.success) {
-            alert(res.message || "삭제 카드 영구 삭제에 실패했습니다.");
+          if (state.apiUrl) {
+            const res = await apiRequest("purgeDeletedCard", {
+              areaId,
+              cardNumber
+            });
+            if (!res.success && !supabaseSuccess) {
+              alert(res.message || "삭제 카드 영구 삭제에 실패했습니다.");
+              return;
+            }
+          } else if (!supabaseSuccess) {
+            alert("삭제 카드 영구 삭제에 실패했습니다. (Supabase/GAS 모두 실패)");
             return;
           }
           await loadData();
           renderAdminPanel();
           setStatus("삭제된 카드가 영구 삭제되었습니다.");
         } catch (e) {
-          alert("삭제 카드 영구 삭제 중 오류가 발생했습니다.");
+          console.error(e);
+          alert("삭제 카드 영구 삭제 중 오류가 발생했습니다: " + e.message);
         } finally {
           setLoading(false);
         }
@@ -1734,5 +1728,3 @@ if (elements.carAssignTempAdd) {
     renderCarAssignmentsPanel();
   });
 }
-
-loadApiUrl();

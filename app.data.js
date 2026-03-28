@@ -223,6 +223,9 @@ const migrateToSupabase = async () => {
       area_id: String(c["구역번호"] || ""),
       card_number: String(c["카드번호"] || ""),
       address: c["주소"],
+      detail_address: c["상세주소"],
+      memo: c["정보"],
+      town: c["읍면동"],
       recent_visit_date: toIsoDate(c["최근방문일"]),
       prev_visit_date: toIsoDate(c["이전봉사일"]),
       meet: !!c["만남"],
@@ -334,6 +337,23 @@ const migrateToSupabase = async () => {
       console.warn("Volunteer data sync failed (optional):", err);
     }
 
+    setLoading(true, "초대장배부(invite_campaign) 동기화 중...");
+    try {
+      if (data.inviteCampaign) {
+        const ic = data.inviteCampaign;
+        if (ic.startDate) {
+          await supabaseClient.from("invite_campaign").upsert({
+            status: ic.active ? "active" : "finished",
+            start_date: toIsoDate(ic.startDate),
+            end_date: toIsoDate(ic.endDate),
+            memo: ic.memo || ""
+          }, { onConflict: "start_date" });
+        }
+      }
+    } catch (err) {
+      console.warn("Invite campaign sync failed (optional):", err);
+    }
+
     alert("동기화가 완료되었습니다!");
     location.reload();
   } catch (err) {
@@ -362,26 +382,84 @@ const migrateToSheets = async () => {
     const { data: deletedCards } = await supabaseClient.from("deleted_cards").select("*");
     const { data: evangelists } = await supabaseClient.from("evangelists").select("*");
     const { data: completions } = await supabaseClient.from("completions").select("*");
+    const { data: visits } = await supabaseClient.from("visits").select("*").order("visit_date", { ascending: false });
+    const { data: assignments } = await supabaseClient.from("car_assignments").select("*");
+    const { data: volunteerWeeks } = await supabaseClient.from("volunteer_weeks").select("*");
+    const { data: inviteCampaign } = await supabaseClient.from("invite_campaign").select("*");
 
     const payload = {
       areas: (areas || []).map(a => ({
-        "구역번호": a.area_id, "시작날짜": a.start_date, "완료날짜": a.end_date, "인도자": a.leader
+        "구역번호": a.area_id, 
+        "시작날짜": a.start_date, 
+        "완료날짜": a.end_date, 
+        "인도자": a.leader,
+        "시작날짜백업": a.start_date_backup,
+        "완료날짜백업": a.end_date_backup,
+        "인도자백업": a.leader_backup
       })),
       cards: (cards || []).map(c => ({
-        "구역번호": c.area_id, "카드번호": c.card_number, "주소": c.address,
-        "최근방문일": c.recent_visit_date, "이전봉사일": c.prev_visit_date,
-        "만남": c.meet, "부재": c.absent, "재방": c.revisit, "연구": c.study,
-        "6개월": c.six_months, "방문금지": c.banned, "차량": c.car_id, "배정날짜": c.assignment_date,
+        "구역번호": c.area_id, 
+        "카드번호": c.card_number, 
+        "읍면동": c.town, 
+        "주소": c.address, 
+        "상세주소": c.detail_address,
+        "정보": c.memo,
+        "정기방문자": c.regular_worker,
+        "최근방문일": c.recent_visit_date, 
+        "이전봉사일": c.prev_visit_date,
+        "만남": c.meet, 
+        "부재": c.absent, 
+        "재방": c.revisit, 
+        "연구": c.study,
+        "6개월": c.six_months, 
+        "방문금지": c.banned, 
+        "차량": c.car_id, 
+        "배정날짜": c.assignment_date,
         "초대장": c.invite
       })),
       deletedCards: (deletedCards || []).map(dc => ({
         "구역번호": dc.area_id, "카드번호": dc.card_number, "주소": dc.address, "삭제일": dc.deleted_at
       })),
       evangelists: (evangelists || []).map(e => ({
-        "이름": e.name, "비밀번호": e.password, "역할": e.role
+        "이름": e.name, 
+        "비밀번호": e.password, 
+        "역할": e.role,
+        "성별": e.gender,
+        "농인": e.is_deaf,
+        "운전자": e.driver,
+        "차량": e.capacity,
+        "부부": e.spouse
       })),
       completions: (completions || []).map(c => ({
-        "구역번호": c.area_id, "완료날짜": c.completion_date, "인도자": c.leader
+        "구역번호": c.area_id, 
+        "완료날짜": c.end_date, 
+        "인도자": c.leader,
+        "비고": ""
+      })),
+      visits: (visits || []).map(v => ({
+        "구역번호": v.area_id,
+        "카드번호": v.card_number,
+        "방문날짜": v.visit_date,
+        "전도인": v.worker,
+        "결과": v.result,
+        "메모": v.note
+      })),
+      assignments: (assignments || []).map(a => ({
+        "날짜": a.date,
+        "시간대": a.slot,
+        "차량": a.car_id,
+        "이름": a.driver,
+        "역할": (a.passengers || []).join(", ")
+      })),
+      volunteerWeeks: (volunteerWeeks || []).map(vw => ({
+        "주차시작": vw.week_start,
+        "데이터": JSON.stringify(vw.data)
+      })),
+      inviteCampaign: (inviteCampaign || []).map(ic => ({
+        "상태": ic.status,
+        "시작일": ic.start_date,
+        "종료일": ic.end_date,
+        "메모": ic.memo
       }))
     };
 
@@ -405,14 +483,21 @@ const loadData = async () => {
   setLoading(true, "데이터 불러오는 중...");
   try {
     if (supabaseClient) {
-      const { data: areas } = await supabaseClient.from("areas").select("*");
+      const { data: areas, error: areaError } = await supabaseClient.from("areas").select("*");
+      if (areaError) {
+        console.error("Supabase load error (areas):", areaError);
+      }
       if (areas && areas.length > 0) {
-        const { data: cards } = await supabaseClient.from("cards").select("*");
+        const { data: cards, error: cardsError } = await supabaseClient.from("cards").select("*");
+        if (cardsError) console.error("Supabase load error (cards):", cardsError);
+        
         const { data: evangelists } = await supabaseClient.from("evangelists").select("*");
         const { data: assignments } = await supabaseClient.from("car_assignments").select("*").gte("date", toIsoDate(new Date()));
         const { data: inviteCampaign } = await supabaseClient.from("invite_campaign").select("*").order("created_at", { ascending: false }).limit(1);
         const { data: completions } = await supabaseClient.from("completions").select("*");
         const { data: deletedCards } = await supabaseClient.from("deleted_cards").select("*").order("deleted_at", { ascending: false });
+
+        updateAppTitle();
 
         state.data.areas = areas.map(a => ({
           "구역번호": a.area_id, "시작날짜": a.start_date, "완료날짜": a.end_date, "인도자": a.leader
@@ -420,6 +505,7 @@ const loadData = async () => {
         state.data.cards = cards.map(c => ({
           id: c.id,
           "구역번호": c.area_id, "카드번호": c.card_number, "주소": c.address,
+          "상세주소": c.detail_address, "정보": c.memo, "읍면동": c.town,
           "최근방문일": c.recent_visit_date, "이전봉사일": c.prev_visit_date,
           "만남": c.meet, "부재": c.absent, "재방": c.revisit, "연구": c.study,
           "6개월": c.six_months, "방문금지": c.banned, "차량": c.car_id, "배정날짜": c.assignment_date,

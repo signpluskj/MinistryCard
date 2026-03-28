@@ -143,12 +143,14 @@ const renderAdminCards = () => {
           <div class="card-header">
             <strong>${cardNo} ${townText ? `(${townText})` : ""}</strong>
             <div class="card-badges">
-              <button class="status-badge" data-action="save-card" data-area-id="${areaId}" data-card-number="${cardNo}">저장</button>
-              <button class="status-badge" data-action="delete-card" data-area-id="${areaId}" data-card-number="${cardNo}">삭제</button>
+              <button class="status-badge" data-action="save-card" data-area-id="${areaId}" data-card-number="${cardNo}" style="background-color: #3b82f6; color: white; border: none;">저장</button>
+              <button class="status-badge" data-action="delete-card" data-area-id="${areaId}" data-card-number="${cardNo}" style="background-color: #ef4444; color: white; border: none;">삭제</button>
             </div>
           </div>
+          <div class="card-line">읍면동: <input type="text" value="${card["읍면동"] || ""}" data-field="town"></div>
           <div class="card-line">주소: <input type="text" value="${card["주소"] || ""}" data-field="address"></div>
           <div class="card-line">상세: <input type="text" value="${card["상세주소"] || ""}" data-field="detailAddress"></div>
+          <div class="card-line">정보: <input type="text" value="${card["정보"] || ""}" data-field="memo"></div>
           <div class="card-check-group">
             <label><input type="checkbox" ${isTrueValue(card["6개월"]) ? "checked" : ""} data-field="sixMonths"> 6개월</label>
             <label><input type="checkbox" ${isTrueValue(card["방문금지"]) ? "checked" : ""} data-field="banned"> 방문금지</label>
@@ -157,30 +159,31 @@ const renderAdminCards = () => {
           </div>
         `;
         cardsBox.appendChild(cardWrapper);
-      });
+        });
 
-      const newCardWrapper = document.createElement("div");
-      newCardWrapper.className = "card admin-card-row";
-      newCardWrapper.dataset.new = "true";
-      newCardWrapper.dataset.areaId = areaId;
-      newCardWrapper.innerHTML = `
+        const newCardWrapper = document.createElement("div");
+        newCardWrapper.className = "card admin-card-row";
+        newCardWrapper.dataset.new = "true";
+        newCardWrapper.dataset.areaId = areaId;
+        newCardWrapper.innerHTML = `
         <div class="card-header">
-          <strong>새 카드 추가</strong>
-          <div class="card-badges">
-            <button class="status-badge" data-card-action="create-card">추가</button>
-          </div>
+        <strong>새 카드 추가</strong>
+        <div class="card-badges">
+          <button class="status-badge" data-card-action="create-card" style="background-color: #22c55e; color: white; border: none;">추가</button>
+        </div>
         </div>
         <div class="card-line">카드번호: <input type="text" placeholder="예: 101-1" data-field="cardNumber"></div>
+        <div class="card-line">읍면동: <input type="text" data-field="town"></div>
         <div class="card-line">주소: <input type="text" data-field="address"></div>
         <div class="card-line">상세: <input type="text" data-field="detailAddress"></div>
+        <div class="card-line">정보: <input type="text" data-field="memo"></div>
         <div class="card-check-group">
-          <label><input type="checkbox" data-field="sixMonths"> 6개월</label>
-          <label><input type="checkbox" data-field="banned"> 방문금지</label>
-          <label><input type="checkbox" data-field="revisit"> 재방</label>
-          <label><input type="checkbox" data-field="study"> 연구</label>
+        <label><input type="checkbox" data-field="sixMonths"> 6개월</label>
+        <label><input type="checkbox" data-field="banned"> 방문금지</label>
+        <label><input type="checkbox" data-field="revisit"> 재방</label>
+        <label><input type="checkbox" data-field="study"> 연구</label>
         </div>
-      `;
-      cardsBox.appendChild(newCardWrapper);
+        `;      cardsBox.appendChild(newCardWrapper);
     }
 
     item.appendChild(cardsBox);
@@ -198,7 +201,7 @@ const renderAdminCompletions = () => {
   if (!box) return;
   box.innerHTML = "";
   const completions = [...(state.data.completions || [])].sort(
-    (a, b) => new Date(b["완료날짜"]) - new Date(a["완료날짜"])
+    (a, b) => new Date(b["완료날짜"] || 0) - new Date(a["완료날짜"] || 0)
   );
 
   if (!completions.length) {
@@ -206,16 +209,51 @@ const renderAdminCompletions = () => {
     return;
   }
 
+  const userRole = state.user ? state.user.role : "";
+  const canEdit = userRole === "관리자" || state.isSuperAdmin === true;
+
   completions.forEach((c) => {
     const div = document.createElement("div");
     div.className = "list-item";
-    div.innerHTML = `
-      <div style="display: flex; justify-content: space-between;">
+    div.style.position = "relative";
+    
+    const content = document.createElement("div");
+    content.innerHTML = `
+      <div style="display: flex; justify-content: space-between; padding-right: 60px;">
         <strong>${c["구역번호"]}</strong>
         <span>${formatDate(c["완료날짜"])}</span>
       </div>
       <div style="font-size: 0.9em; margin-top: 4px;">인도자: ${c["인도자"] || "없음"}</div>
     `;
+    div.appendChild(content);
+
+    if (canEdit) {
+      const actions = document.createElement("div");
+      actions.style.position = "absolute";
+      actions.style.top = "10px";
+      actions.style.right = "10px";
+      actions.style.display = "flex";
+      actions.style.gap = "5px";
+
+      const editBtn = document.createElement("button");
+      editBtn.textContent = "수정";
+      editBtn.className = "admin-btn-small";
+      editBtn.style.padding = "2px 6px";
+      editBtn.style.fontSize = "11px";
+      editBtn.addEventListener("click", () => editCompletion(c));
+
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "삭제";
+      delBtn.className = "admin-btn-small";
+      delBtn.style.padding = "2px 6px";
+      delBtn.style.fontSize = "11px";
+      delBtn.style.backgroundColor = "#ef4444";
+      delBtn.addEventListener("click", () => deleteCompletion(c));
+
+      actions.append(editBtn, delBtn);
+      div.appendChild(actions);
+    }
+
     box.appendChild(div);
   });
 };
@@ -243,17 +281,20 @@ const renderAdminEvangelists = () => {
   evangelists.forEach((ev) => {
     const tr = document.createElement("tr");
     tr.dataset.name = ev["이름"];
+
     tr.innerHTML = `
       <td><input type="text" value="${ev["이름"] || ""}" readOnly></td>
-      <td><input type="text" value="${ev["성별"] || ""}" data-field="gender" style="width:30px"></td>
+      <td><input type="text" value="${ev["성별"] || ""}" data-field="gender" style="width:100%"></td>
       <td><input type="checkbox" ${isTrueValue(ev["농인"]) ? "checked" : ""} data-field="deaf"></td>
-      <td><input type="text" value="${ev["역할"] || ""}" data-field="role" style="width:60px"></td>
+      <td><input type="text" value="${ev["역할"] || ""}" data-field="role" style="width:100%"></td>
       <td><input type="checkbox" ${isTrueValue(ev["운전자"]) ? "checked" : ""} data-field="driver"></td>
-      <td><input type="number" value="${ev["차량"] || 0}" data-field="capacity" style="width:40px"></td>
-      <td><input type="text" value="${ev["부부"] || ""}" data-field="spouse" style="width:60px"></td>
+      <td><input type="number" value="${ev["차량"] || 0}" data-field="capacity" style="width:100%"></td>
+      <td><input type="text" value="${ev["부부"] || ""}" data-field="spouse" style="width:100%"></td>
       <td class="admin-actions-cell">
-        <button data-action="save-ev" data-name="${ev["이름"]}">저장</button>
-        <button data-action="delete-ev" data-name="${ev["이름"]}">삭제</button>
+        <div style="display:flex; gap:2px; justify-content:center">
+          <button data-action="save-ev" data-name="${ev["이름"]}" style="flex:1; padding:4px 0">저장</button>
+          <button data-action="delete-ev" data-name="${ev["이름"]}" style="flex:1; padding:4px 0; background-color:#ef4444">삭제</button>
+        </div>
       </td>
     `;
     tbody.appendChild(tr);
@@ -263,15 +304,18 @@ const renderAdminEvangelists = () => {
   newTr.dataset.new = "true";
   newTr.innerHTML = `
     <td><input type="text" placeholder="이름" data-field="name"></td>
-    <td><input type="text" data-field="gender" style="width:30px"></td>
+    <td><input type="text" data-field="gender" style="width:100%"></td>
     <td><input type="checkbox" data-field="deaf"></td>
-    <td><input type="text" value="전도인" data-field="role" style="width:60px"></td>
+    <td><input type="text" value="전도인" data-field="role" style="width:100%"></td>
     <td><input type="checkbox" data-field="driver"></td>
-    <td><input type="number" data-field="capacity" style="width:40px"></td>
-    <td><input type="text" data-field="spouse" style="width:60px"></td>
-    <td class="admin-actions-cell"><button data-action="create-ev">추가</button></td>
-  `;
-  tbody.appendChild(newTr);
+    <td><input type="number" data-field="capacity" style="width:100%"></td>
+    <td><input type="text" data-field="spouse" style="width:100%"></td>
+    <td class="admin-actions-cell">
+      <div style="display:flex; gap:2px; justify-content:center">
+        <button data-action="create-ev" style="width:100%; padding:4px 0">추가</button>
+      </div>
+    </td>
+  `;  tbody.appendChild(newTr);
   box.appendChild(table);
 };
 

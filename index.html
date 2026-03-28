@@ -13,7 +13,10 @@
     <div id="app">
       <header class="app-header">
         <button id="menu-toggle" class="menu-button" type="button">☰</button>
-        <h1 id="app-title">봉사 카드 정보</h1>
+        <h1 id="app-title">
+          <img src="icons/visit-house-192.svg" alt="icon" class="app-icon" />
+          <span id="app-title-text">봉사 카드 정보</span>
+        </h1>
         <div class="header-right">
           <div id="user-info" class="user-info"></div>
         </div>
@@ -81,9 +84,6 @@
               <button id="close-car-assign" class="icon-button" type="button">✕</button>
             </div>
             <div class="car-assign-body">
-              <div class="car-assign-left">
-                <div id="car-assign-evangelist-list" class="list"></div>
-              </div>
               <div class="car-assign-right">
                 <div class="car-assign-top-controls">
                   <div id="car-assign-today-display" class="volunteer-today-label"></div>
@@ -167,23 +167,30 @@
             </div>
           </div>
         </div>
-        <section id="config-panel" class="panel hidden super-admin-only" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2000; width: 90%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #444;">
+        <section id="config-panel" class="panel hidden" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 2000; width: 90%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #444;">
           <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
             <h2>연결 설정</h2>
             <button id="close-config" class="icon-button" type="button" style="font-size: 20px;">✕</button>
           </div>
           <div class="panel-body">
             <label class="field">
+              <span>회중 이름</span>
+              <input id="congregation-name-input" type="text" placeholder="예: 문경주 회중" />
+            </label>
+            <label class="field">
+              <span>구역 정렬 순서 (쉼표로 구분)</span>
+              <textarea id="area-order-input" placeholder="예: 춘천, 가평, 화천, 양구, 홍천, 찾기봉사" style="min-height: 60px;"></textarea>
+            </label>
+            <label class="field">
               <span>앱스 스크립트 URL</span>
               <input id="api-url-input" type="text" placeholder="https://script.google.com/macros/s/..." />
             </label>
-            <button id="save-api-url">저장</button>
+            <button id="save-config">저장</button>
             <div style="margin-top: 15px; display: flex; flex-direction: column; gap: 10px;">
               <button id="sync-to-supabase" style="background-color: #10b981;">구글 시트 데이터를 Supabase로 동기화</button>
               <button id="sync-to-sheets" style="background-color: #f59e0b; color: white;">Supabase 데이터를 구글 시트로 덮어쓰기</button>
               <button id="backup-to-excel" style="background-color: #3b82f6;">Supabase 데이터 엑셀 백업 (.xlsx)</button>
-            </div>
-          </div>
+            </div>          </div>
         </section>
         <section id="login-panel" class="panel">
           <div class="panel-header">
@@ -264,7 +271,10 @@
                   <input id="visit-note" type="text" />
                 </label>
                 <div class="visit-actions">
-                  <button id="save-visit" type="submit">저장</button>
+                  <div class="visit-main-actions" style="display: flex; gap: 8px; margin-bottom: 8px;">
+                    <button id="save-visit" type="submit" style="flex: 1;">저장</button>
+                    <button id="visit-delete" type="button" class="btn-danger hidden" style="flex: 1;">삭제</button>
+                  </div>
                   <div class="visit-flag-buttons">
                     <button id="visit-clear-revisit" type="button">재방 해제</button>
                     <button id="visit-clear-study" type="button">연구 해제</button>

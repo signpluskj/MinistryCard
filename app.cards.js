@@ -74,9 +74,12 @@ const renderCards = () => {
     return;
   }
   if (query) {
-    cards = cards.filter((card) =>
-      `${card["주소"] || ""} ${card["상세주소"] || ""}`.includes(query)
-    );
+    cards = cards.filter((card) => {
+      const areaId = String(card["구역번호"] || "");
+      const area = state.data.areas.find(a => String(a["구역번호"]) === areaId);
+      const leader = area ? (area["인도자"] || "") : "";
+      return `${card["주소"] || ""} ${card["상세주소"] || ""} ${card["정기방문자"] || ""} ${leader}`.includes(query);
+    });
   }
   if (state.filterVisit === "meet") {
     cards = cards.filter((card) => isTrueValue(card["만남"]));
@@ -133,6 +136,36 @@ const renderCards = () => {
     }
   }
   cards.sort((a, b) => {
+    // 1순위: 차량 배정 여부 (오늘 날짜 기준)
+    const carA = getCardAssignedCarIdForDate(a, today);
+    const carB = getCardAssignedCarIdForDate(b, today);
+    if (carA && !carB) return -1;
+    if (!carA && carB) return 1;
+
+    // 2순위: 구역 번호 (전체 구역 보기일 때)
+    if (state.filterArea === "all") {
+      const aa = String(a["구역번호"] || "");
+      const ab = String(b["구역번호"] || "");
+      if (aa !== ab) {
+        const order = (state.areaOrder && state.areaOrder.length > 0) 
+          ? state.areaOrder 
+          : ["춘천", "가평", "화천", "양구", "홍천", "찾기봉사"];
+        const idxA = order.indexOf(aa);
+        const idxB = order.indexOf(ab);
+        
+        // 커스텀 정렬 순서 우선 적용
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+
+        // 커스텀 순서에 없는 지역은 숫자/문자열 정렬
+        const na = Number(aa);
+        const nb = Number(ab);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return aa.localeCompare(ab, "ko-KR");
+      }
+    }
+
     const getUnvisited = (card) => {
       if (!startDate) {
         return false;
@@ -180,27 +213,47 @@ const renderCards = () => {
   cards.forEach((card) => {
     const cardEl = document.createElement("div");
     cardEl.className = "card";
+
+    // Requirement: Long-press to open Google Maps
+    let pressTimer;
+    const startPress = () => {
+      pressTimer = setTimeout(() => {
+        const addressText = String(card["주소"] || "").trim();
+        const queryText = addressText || String(card["카드번호"] || "").trim();
+        const encoded = encodeURIComponent(queryText);
+        window.open(`https://www.google.com/maps/search/?api=1&query=${encoded}`, "_blank");
+      }, 600);
+    };
+    const cancelPress = () => {
+      clearTimeout(pressTimer);
+    };
+    cardEl.addEventListener("mousedown", startPress);
+    cardEl.addEventListener("mouseup", cancelPress);
+    cardEl.addEventListener("mouseleave", cancelPress);
+    cardEl.addEventListener("touchstart", (e) => {
+      // Don't trigger if it's a multi-touch
+      if (e.touches.length === 1) startPress();
+    }, { passive: true });
+    cardEl.addEventListener("touchend", cancelPress);
+    cardEl.addEventListener("touchmove", cancelPress);
+    cardEl.addEventListener("contextmenu", (e) => {
+      // Prevent default context menu to not interfere with long-press
+      // But only if we want to fully take over. For now, let's just let it be.
+    });
     const isSelected =
       state.selectedCard &&
-      card["카드번호"] === state.selectedCard["카드번호"];
+      String(card["구역번호"]) === String(state.selectedCard["구역번호"]) &&
+      String(card["카드번호"]) === String(state.selectedCard["카드번호"]);
+    
+    // 오직 선택된(방문 기록 창이 열린) 카드만 active 클래스를 가짐
     if (isSelected) {
       cardEl.classList.add("active");
       if (isInProgress) {
         cardEl.classList.add("card-active-progress");
       }
     }
-    let unvisited = false;
-    if (startDate) {
-      if (card["최근방문일"]) {
-        const recentDate = parseVisitDate(card["최근방문일"]);
-        if (recentDate && recentDate < startDate) {
-          unvisited = true;
-        }
-      }
-    }
-    if (unvisited) {
-      cardEl.classList.add("card-unvisited");
-    }    const title = document.createElement("div");
+
+    const title = document.createElement("div");
     title.className = "card-header";
     const mainTitle = document.createElement("strong");
   const cardNumText = String(card["카드번호"] || "");
@@ -215,43 +268,26 @@ const renderCards = () => {
       ban.className = "badge badge-danger";
       ban.textContent = "방문금지";
       badgeRow.appendChild(ban);
-    }
-    const meetVal = card["만남"];
-    const absentVal = card["부재"];
-    const recentVal = card["최근방문일"];
-    if (!recentVal) {
-      const unv = document.createElement("span");
-      unv.className = "badge badge-unvisited";
-      unv.textContent = "미방문";
-      badgeRow.appendChild(unv);
-    } else if (isTrueValue(meetVal)) {
-      const meet = document.createElement("span");
-      meet.className = "badge badge-success";
-      meet.textContent = "만남";
-      badgeRow.appendChild(meet);
-    } else if (meetVal === false || isTrueValue(absentVal)) {
-      const absent = document.createElement("span");
-      absent.className = "badge";
-      absent.textContent = "부재";
-      badgeRow.appendChild(absent);
-    }
-    if (card["재방"]) {
+      }
+
+      if (card["재방"]) {
       const rv = document.createElement("span");
       rv.className = "badge badge-revisit";
       rv.textContent = "재방";
       badgeRow.appendChild(rv);
-    }
-    if (card["연구"]) {
+      }
+      if (card["연구"]) {
       const st = document.createElement("span");
       st.className = "badge badge-study";
       st.textContent = "연구";
       badgeRow.appendChild(st);
-    } else if (card["6개월"]) {
+      } else if (card["6개월"]) {
       const six = document.createElement("span");
       six.className = "badge badge-sixmonths";
       six.textContent = "6개월";
       badgeRow.appendChild(six);
-    }
+      }
+
     title.append(mainTitle, badgeRow);
     const address = document.createElement("div");
     address.className = "card-line";
@@ -262,6 +298,7 @@ const renderCards = () => {
     visitInfo.textContent = card["최근방문일"]
       ? `최근방문: ${formatDate(card["최근방문일"])}`
       : "최근방문 없음";
+
     const regular = document.createElement("div");
     regular.className = "card-line";
     if (card["정기방문자"]) {
@@ -295,49 +332,64 @@ const renderCards = () => {
     google.rel = "noopener noreferrer";
     google.textContent = "구글";
     nav.append(kakao, naver, google);
-    if (canAssignFromCardsPanel) {
-    const assignBox = document.createElement("span");
-    assignBox.className = "card-assign-box";
-    const label = document.createElement("label");
-    label.className = "card-assign-label";
-    const carId = getCardAssignedCarIdForDate(card, todayISO());
-    if (carId) {
-      const rows = state.data.assignments || [];
-      const sameCar = rows.filter(
-        (row) => String(row["차량"] || "") === carId
+
+    // 차량 배정 정보 표시 (항상 표시하되, 체크박스가 있을 때는 그 옆에 배치)
+    const assignedCarId = getCardAssignedCarIdForDate(card, todayISO());
+    let carInfoEl = null;
+    if (assignedCarId) {
+      const assignments = state.data.assignments || [];
+      // 오늘 날짜와 해당 차량 번호에 맞는 배정 정보를 찾음
+      const assignment = assignments.find(
+        (a) =>
+          String(a["차량"]) === String(assignedCarId) &&
+          toAssignmentDateText(a["날짜"]) === toAssignmentDateText(todayISO())
       );
-      const driverRow =
-        sameCar.find(
-          (row) => String(row["역할"] || "") === "운전자"
-        ) || null;
-      const driverName = driverRow ? String(driverRow["이름"] || "") : "";
-      const infoSpan = document.createElement("span");
-      infoSpan.className = "card-car-info";
-      infoSpan.textContent = driverName
-        ? `차량 ${carId} · ${driverName}`
-        : `차량 ${carId}`;
-      label.appendChild(infoSpan);
+      const driverName = assignment ? String(assignment["이름"] || "") : "";
+      carInfoEl = document.createElement("span");
+      carInfoEl.className = "card-car-info";
+      carInfoEl.style.fontSize = "14px";
+      carInfoEl.style.color = "#1d4ed8";
+      carInfoEl.style.fontWeight = "600";
+      carInfoEl.style.marginRight = "8px";
+      carInfoEl.innerHTML = `🚗${driverName ? ` (${driverName})` : ""}`;
     }
-    const check = document.createElement("input");
-    check.type = "checkbox";
-    check.className = "card-select";
-    check.dataset.cardNumber = String(card["카드번호"] || "");
-    check.checked = state.selectedCards.includes(
-      String(card["카드번호"] || "")
-    );
-    check.addEventListener("change", (e) => {
-      const id = String(card["카드번호"] || "");
-      const set = new Set(state.selectedCards);
-      if (e.target.checked) {
-        set.add(id);
-      } else {
-        set.delete(id);
+
+    if (canAssignFromCardsPanel) {
+      const assignBox = document.createElement("span");
+      assignBox.className = "card-assign-box";
+      const label = document.createElement("label");
+      label.className = "card-assign-label";
+      
+      if (carInfoEl) {
+        label.appendChild(carInfoEl);
       }
-      state.selectedCards = Array.from(set);
-    });
-    label.appendChild(check);
-    assignBox.appendChild(label);
-    nav.appendChild(assignBox);
+      
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.className = "card-select";
+      check.dataset.cardNumber = String(card["카드번호"] || "");
+      check.checked = state.selectedCards.includes(
+        String(card["카드번호"] || "")
+      );
+      check.addEventListener("change", (e) => {
+        const id = String(card["카드번호"] || "");
+        const set = new Set(state.selectedCards);
+        if (e.target.checked) {
+          set.add(id);
+        } else {
+          set.delete(id);
+        }
+        state.selectedCards = Array.from(set);
+      });
+      label.appendChild(check);
+      assignBox.appendChild(label);
+      nav.appendChild(assignBox);
+    } else if (carInfoEl) {
+      // 체크박스를 볼 권한이 없는 일반 전도인에게도 차량 정보는 보여줌
+      const assignBox = document.createElement("span");
+      assignBox.className = "card-assign-box";
+      assignBox.appendChild(carInfoEl);
+      nav.appendChild(assignBox);
     }
     cardEl.append(title, address, visitInfo);
     if (regular.textContent) {
@@ -524,6 +576,16 @@ const renderCards = () => {
               oldResult: String(resultText),
               oldNote: String(memoText)
             };
+
+            if (elements.visitDelete) {
+              const isAdmin = state.user && (state.user.role === "관리자" || state.user.role === "인도자");
+              if (isAdmin) {
+                elements.visitDelete.classList.remove("hidden");
+              } else {
+                elements.visitDelete.classList.add("hidden");
+              }
+            }
+
             elements.visitTitle.textContent = `카드 ${card["카드번호"]} 방문 내역 수정`;
             elements.visitDate.value = toISODate(getVisitDateValue(row));
             elements.visitWorker.value = workerText;
