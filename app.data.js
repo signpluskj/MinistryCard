@@ -81,6 +81,67 @@ const deleteCardInSupabase = async (areaId, cardNumber) => {
   return { success: true };
 };
 
+const deleteVolunteerWeekFromSupabase = async (weekStart) => {
+  if (!supabaseClient) return { success: false, message: "Supabase client not initialized" };
+  try {
+    const { error } = await supabaseClient
+      .from("volunteer_weeks")
+      .delete()
+      .eq("week_start", weekStart);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    console.error("Failed to delete volunteer week:", err);
+    return { success: false, message: err.message };
+  }
+};
+
+const batchUpdateVolunteerWeekdayMemos = async (weekday, slotName, memo) => {
+  if (!supabaseClient) return { success: false, message: "Supabase client not initialized" };
+  try {
+    const { data: weeks, error: fetchError } = await supabaseClient
+      .from("volunteer_weeks")
+      .select("*");
+
+    if (fetchError) throw fetchError;
+
+    const updates = (weeks || []).map(row => {
+      const weekData = { ...row.data };
+      let changed = false;
+      (weekData.days || []).forEach(d => {
+        if (d.weekday === weekday) {
+          if (slotName === "오후") {
+            if (d.fixedMemoPM !== memo) {
+              d.fixedMemoPM = memo;
+              changed = true;
+            }
+          } else {
+            if (d.fixedMemoAM !== memo) {
+              d.fixedMemoAM = memo;
+              changed = true;
+            }
+          }
+        }
+      });
+      return changed ? { week_start: row.week_start, data: weekData } : null;
+    }).filter(u => u !== null);
+
+    if (updates.length > 0) {
+      const { error: updateError } = await supabaseClient
+        .from("volunteer_weeks")
+        .upsert(updates, { onConflict: "week_start" });
+
+      if (updateError) throw updateError;
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error("Failed to batch update volunteer weekday memos:", err);
+    return { success: false, message: err.message };
+  }
+};
+
 const restoreDeletedCardInSupabase = async (areaId, cardNumber) => {
   if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
 

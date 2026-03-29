@@ -2086,6 +2086,40 @@ const renderVolunteerOverlay = () => {
   const isLeader = userRole === "인도자";
   const canManageVolunteerSignups = isAdmin || isLeader;
 
+  const bindLongPress = (element, onLongPress) => {
+    let timer = null;
+    let longPressed = false;
+    const start = (event) => {
+      if (event) event.stopPropagation();
+      longPressed = false;
+      timer = setTimeout(async () => {
+        longPressed = true;
+        timer = null;
+        await onLongPress();
+      }, 700);
+    };
+    const cancel = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+    element.addEventListener("mousedown", (event) => {
+      if (event.button !== 0) return;
+      start(event);
+    });
+    element.addEventListener("touchstart", start);
+    ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((type) => {
+      element.addEventListener(type, cancel);
+    });
+    element.addEventListener("click", (event) => {
+      if (!longPressed) return;
+      event.preventDefault();
+      event.stopPropagation();
+      longPressed = false;
+    });
+  };
+
   const allDays = buildVolunteerDayList();
   ensureVolunteerSelection();
 
@@ -2157,40 +2191,6 @@ const renderVolunteerOverlay = () => {
     const dayCard = document.createElement("div");
     dayCard.className = "volunteer-card volunteer-card-days";
     
-    const bindLongPress = (element, onLongPress) => {
-      let timer = null;
-      let longPressed = false;
-      const start = (event) => {
-        if (event) event.stopPropagation();
-        longPressed = false;
-        timer = setTimeout(async () => {
-          longPressed = true;
-          timer = null;
-          await onLongPress();
-        }, 700);
-      };
-      const cancel = () => {
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
-      };
-      element.addEventListener("mousedown", (event) => {
-        if (event.button !== 0) return;
-        start(event);
-      });
-      element.addEventListener("touchstart", start);
-      ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach((type) => {
-        element.addEventListener(type, cancel);
-      });
-      element.addEventListener("click", (event) => {
-        if (!longPressed) return;
-        event.preventDefault();
-        event.stopPropagation();
-        longPressed = false;
-      });
-    };
-
     const weekdayFullMap = {
       월: "월요일", 화: "화요일", 수: "수요일", 목: "목요일",
       금: "금요일", 토: "토요일", 일: "일요일"
@@ -2621,14 +2621,19 @@ const renderVolunteerOverlay = () => {
     weekLabel.className = "volunteer-admin-label";
     weekLabel.textContent = "주 선택";
     weekRow.appendChild(weekLabel);
-    const weekSelect = document.createElement("select");
+    
+    const weekChipsContainer = document.createElement("div");
+    weekChipsContainer.className = "volunteer-admin-week-chips-container";
+
     const sortedWeeks = (weeks || []).slice().sort((a, b) => {
       const aISO = a.weekStartISO || a.weekStartText || "";
       const bISO = b.weekStartISO || b.weekStartText || "";
       return aISO.localeCompare(bISO);
     });
     sortedWeeks.forEach((w) => {
-      const opt = document.createElement("option");
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "volunteer-admin-week-chip";
       const ds = w.days || [];
       let label = "";
       if (ds.length) {
@@ -2642,28 +2647,47 @@ const renderVolunteerOverlay = () => {
           w.weekStartText || w.weekStartISO || ""
         );
       }
-      opt.value = w.weekStartText || "";
-      opt.textContent = label;
+      chip.textContent = label;
       if (
         String(w.weekStartText || "") ===
         String(state.selectedVolunteerWeekStart || "")
       ) {
-        opt.selected = true;
+        chip.classList.add("active");
       }
-      weekSelect.appendChild(opt);
+      chip.addEventListener("click", () => {
+        const value = w.weekStartText || "";
+        state.selectedVolunteerWeekStart = value;
+        const target =
+          days.find((d) => String(d.weekStartText || "") === String(value)) ||
+          null;
+        if (target) {
+          state.selectedVolunteerDate = target.isoDate || "";
+        }
+        renderVolunteerOverlay();
+      });
+
+      bindLongPress(chip, async () => {
+        const ok = window.confirm(`[${label}] 주간의 설정을 전체 삭제할까요?\n(해당 주간의 모든 날짜와 신청 기록이 삭제됩니다.)`);
+        if (!ok) return;
+        setLoading(true, "주간 설정을 삭제하는 중...");
+        try {
+          const weekStart = w.weekStartText || w.weekStartISO;
+          const res = await deleteVolunteerWeekFromSupabase(weekStart);
+          if (!res.success) throw new Error(res.message);
+          
+          await loadVolunteerConfig();
+          ensureVolunteerSelection();
+          renderVolunteerOverlay();
+        } catch (err) {
+          console.error("Delete volunteer week error:", err);
+          alert("삭제에 실패했습니다: " + err.message);
+        } finally {
+          setLoading(false);
+        }
+      });
+      weekChipsContainer.appendChild(chip);
     });
-    weekSelect.addEventListener("change", () => {
-      const value = weekSelect.value;
-      state.selectedVolunteerWeekStart = value;
-      const target =
-        days.find((d) => String(d.weekStartText || "") === String(value)) ||
-        null;
-      if (target) {
-        state.selectedVolunteerDate = target.isoDate || "";
-      }
-      renderVolunteerOverlay();
-    });
-    weekRow.appendChild(weekSelect);
+    weekRow.appendChild(weekChipsContainer);
     adminBox.appendChild(weekRow);
     const row1 = document.createElement("div");
     row1.className = "volunteer-admin-row";
@@ -2905,6 +2929,17 @@ const renderVolunteerOverlay = () => {
           setLoading(true, "메모를 저장하는 중...");
           try {
             const weekStart = selectedDay.weekStartText || selectedDay.weekStartISO;
+            const weekday = selectedDay.weekday;
+            
+            // 1. Update weekday memo (fixedMemo) for ALL weeks
+            const batchRes = await batchUpdateVolunteerWeekdayMemos(
+              weekday, 
+              slotName, 
+              fixedMemoInput.value || ""
+            );
+            if (!batchRes.success) throw new Error(batchRes.message);
+
+            // 2. Update date memo (extraMemo) for current week
             const { data: weekRow, error: fetchError } = await supabaseClient
               .from("volunteer_weeks")
               .select("data")
@@ -2914,16 +2949,15 @@ const renderVolunteerOverlay = () => {
             if (fetchError) throw fetchError;
             
             const updatedData = { ...weekRow.data };
-            const dayObj = (updatedData.days || []).find(d => d.isoDate === selectedDay.isoDate);
-            if (dayObj) {
-              if (slotName === "오후") {
-                dayObj.fixedMemoPM = fixedMemoInput.value || "";
-                dayObj.extraMemoPM = extraMemoInput.value || "";
-              } else {
-                dayObj.fixedMemoAM = fixedMemoInput.value || "";
-                dayObj.extraMemoAM = extraMemoInput.value || "";
+            (updatedData.days || []).forEach(d => {
+              if (d.isoDate === selectedDay.isoDate) {
+                if (slotName === "오후") {
+                  d.extraMemoPM = extraMemoInput.value || "";
+                } else {
+                  d.extraMemoAM = extraMemoInput.value || "";
+                }
               }
-            }
+            });
             
             const saveRes = await saveVolunteerWeekToSupabase(weekStart, updatedData);
             if (!saveRes.success) throw new Error(saveRes.message);

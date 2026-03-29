@@ -2180,3 +2180,33 @@ button.secondary {
     transform: rotate(360deg);
   }
 }
+
+.volunteer-admin-week-chips-container {
+  display: flex;
+  overflow-x: auto;
+  gap: 8px;
+  padding: 4px 0;
+  flex: 1;
+  -webkit-overflow-scrolling: touch;
+}
+
+.volunteer-admin-week-chip {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f9fafb;
+  color: #475569;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.volunteer-admin-week-chip.active {
+  background: #3b82f6;
+  color: #ffffff;
+  border-color: #2563eb;
+  font-weight: 600;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+}
