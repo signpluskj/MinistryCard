@@ -361,7 +361,13 @@ const renderAdminDeletedCards = () => {
       item.innerHTML = `<strong>${areaId} · 삭제 카드 ${byArea[areaId].length}장</strong>`;
       const innerBox = document.createElement("div");
       innerBox.className = "deleted-card-box";
-      byArea[areaId].forEach((c) => {
+      
+      // 구역 내 카드 번호 순으로 정렬 추가
+      const sortedCards = byArea[areaId].sort((ca, cb) => 
+        compareCardNumbers(ca["카드번호"], cb["카드번호"])
+      );
+
+      sortedCards.forEach((c) => {
         const cardEl = document.createElement("div");
         cardEl.className = "card";
         cardEl.dataset.areaId = areaId;
@@ -370,7 +376,10 @@ const renderAdminDeletedCards = () => {
         cardEl.innerHTML = `
         <div class="card-header">
           <strong>${c["카드번호"]}</strong> 
-          <button class="status-badge" data-action="restore-deleted" data-area-id="${areaId}" data-card-number="${c["카드번호"]}">복원</button>
+          <div class="card-badges">
+            <button class="status-badge" data-action="restore-deleted" data-area-id="${areaId}" data-card-number="${c["카드번호"]}" style="background-color: #3b82f6; color: white; border: none;">복원</button>
+            <button class="status-badge" data-action="purge-deleted" data-area-id="${areaId}" data-card-number="${c["카드번호"]}" style="background-color: #ef4444; color: white; border: none;">삭제</button>
+          </div>
         </div>
         <div class="card-line">${c["주소"] || ""}</div>
         <div class="card-line" style="font-size:0.8em; color:#888;">삭제일: ${formatDate(c["삭제일"])}</div>

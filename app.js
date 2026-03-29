@@ -146,7 +146,7 @@ const elements = {
   completionList: document.getElementById("admin-completions-list"),
   visitList: document.getElementById("visit-list"),
 
-  evangelistList: document.getElementById("evangelist-list"),
+  evangelistList: document.getElementById("admin-evangelist-list"),
   carAssignPanel: document.getElementById("car-assign-panel"),
   bannedCardList: document.getElementById("banned-card-list"),
   deletedCardList: document.getElementById("admin-deleted-card-list"),

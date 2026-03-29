@@ -44,25 +44,26 @@ const deleteCardInSupabase = async (areaId, cardNumber) => {
     .select("*")
     .eq("area_id", String(areaId))
     .eq("card_number", String(cardNumber))
-    .single();
+    .maybeSingle();
 
   if (selectError) {
-    console.warn("Card not found in Supabase or already deleted:", selectError);
+    console.warn("Error finding card for deletion:", selectError);
   }
 
   if (card) {
     const { error: insertError } = await supabaseClient
       .from("deleted_cards")
-      .insert({
+      .upsert({
         area_id: String(card.area_id),
         card_number: String(card.card_number),
         address: card.address,
+        town: card.town,
+        memo: card.memo,
         deleted_at: new Date().toISOString()
-      });
+      }, { onConflict: "area_id, card_number" });
 
     if (insertError) {
       console.error("Failed to archive deleted card:", insertError);
-      throw insertError;
     }
 
     const { error: deleteError } = await supabaseClient
