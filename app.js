@@ -472,7 +472,7 @@ const renderMyCarInfo = () => {
   const lines = [];
   lines.push(`<div class="car-info-main" style="display:flex; justify-content:space-between; align-items:center;">
     <span>${textParts.join(" | ")}</span>
-    <span style="font-size:16px; font-weight:bold; color:#16a34a;">▼</span>
+    <span style="font-size:10px; font-weight:bold; color:#16a34a;">▼</span>
   </div>`);
   
   const cards = (state.data.cards || []).filter(
@@ -496,7 +496,7 @@ const renderFullCarDashboard = (box, rows) => {
   const lines = [];
   lines.push(`<div class="car-info-main" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #bbf7d0; padding-bottom:6px;">
     <span style="color:#166534">오늘의 전체 배정 현황</span>
-    <span style="font-size:12px; font-weight:normal; color:#16a34a;">▲ 접기</span>
+    <span style="font-size:10px; font-weight:normal; color:#16a34a;">▲</span>
   </div>`);
 
   const carGroups = {};
