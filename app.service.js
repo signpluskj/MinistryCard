@@ -462,27 +462,6 @@ const saveVisit = async (event) => {
       if (insertError) throw insertError;
     }
 
-    // 구글 시트 동기화 (비동기, 비결정적)
-    try {
-      const gasPayload = {
-        areaId: String(areaId),
-        cardNumber: String(cardNumber),
-        visitDate: visitDate,
-        worker: worker,
-        result: result,
-        note: note
-      };
-      if (isEdit) {
-        gasPayload.oldVisitDate = state.editingVisit.oldVisitDate;
-        gasPayload.oldWorker = state.editingVisit.oldWorker;
-        await apiRequest("updateVisit", gasPayload);
-      } else {
-        await apiRequest("recordVisit", gasPayload);
-      }
-    } catch (gasErr) {
-      console.warn("GAS visit sync failed (non-critical):", gasErr);
-    }
-
     const { data: allVisits, error: visitsError } = await supabaseClient
       .from("visits")
       .select("*")
@@ -587,6 +566,90 @@ const saveVisit = async (event) => {
   } catch (err) {
     console.error("Save visit error:", err);
     alert("오류가 발생했습니다: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const visitClearRevisit = async () => {
+  if (!state.selectedCard) return;
+  if (!window.confirm("재방 표시를 해제하시겠습니까?")) return;
+  const areaId = state.selectedArea;
+  const cardNumber = state.selectedCard["카드번호"];
+  setLoading(true, "재방 해제 중...");
+  try {
+    const res = await updateCardFlagsInSupabase(areaId, cardNumber, { revisit: false });
+    if (res.success) {
+      setStatus("재방 표시가 해제되었습니다.");
+      await loadData();
+      renderCards();
+    }
+  } catch (err) {
+    console.error(err);
+    alert("오류: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const visitClearStudy = async () => {
+  if (!state.selectedCard) return;
+  if (!window.confirm("연구 표시를 해제하시겠습니까?")) return;
+  const areaId = state.selectedArea;
+  const cardNumber = state.selectedCard["카드번호"];
+  setLoading(true, "연구 해제 중...");
+  try {
+    const res = await updateCardFlagsInSupabase(areaId, cardNumber, { study: false });
+    if (res.success) {
+      setStatus("연구 표시가 해제되었습니다.");
+      await loadData();
+      renderCards();
+    }
+  } catch (err) {
+    console.error(err);
+    alert("오류: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const visitClearSix = async () => {
+  if (!state.selectedCard) return;
+  if (!window.confirm("6개월 표시를 해제하시겠습니까?")) return;
+  const areaId = state.selectedArea;
+  const cardNumber = state.selectedCard["카드번호"];
+  setLoading(true, "6개월 해제 중...");
+  try {
+    const res = await updateCardFlagsInSupabase(areaId, cardNumber, { sixMonths: false });
+    if (res.success) {
+      setStatus("6개월 표시가 해제되었습니다.");
+      await loadData();
+      renderCards();
+    }
+  } catch (err) {
+    console.error(err);
+    alert("오류: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const visitClearBanned = async () => {
+  if (!state.selectedCard) return;
+  if (!window.confirm("방문금지 표시를 해제하시겠습니까?")) return;
+  const areaId = state.selectedArea;
+  const cardNumber = state.selectedCard["카드번호"];
+  setLoading(true, "방문금지 해제 중...");
+  try {
+    const res = await updateCardFlagsInSupabase(areaId, cardNumber, { banned: false });
+    if (res.success) {
+      setStatus("방문금지 표시가 해제되었습니다.");
+      await loadData();
+      renderCards();
+    }
+  } catch (err) {
+    console.error(err);
+    alert("오류: " + err.message);
   } finally {
     setLoading(false);
   }

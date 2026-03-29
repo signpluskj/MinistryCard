@@ -680,12 +680,6 @@ if (elements.adminCardsList) {
             .upsert(dbData, { onConflict: "area_id, card_number" });
         }
 
-        const res = await apiRequest("upsertCard", payload);
-        if (!res.success) {
-          alert(res.message || "구역카드 저장에 실패했습니다.");
-          return;
-        }
-        state.data.cards = res.cards || [];
         await loadData();
         renderAreas();
         renderCards();
@@ -759,12 +753,6 @@ if (elements.adminCardsList) {
 
         if (error) throw error;
 
-        try {
-          await apiRequest("upsertCard", payload);
-        } catch (gasErr) {
-          console.warn("GAS upsert failed (non-critical):", gasErr);
-        }
-
         await loadData();
         renderAreas();
         renderCards();
@@ -794,15 +782,6 @@ if (elements.adminCardsList) {
         if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
 
         await deleteCardInSupabase(areaId, baseCardNumber);
-
-        try {
-          await apiRequest("deleteCard", {
-            areaId: String(areaId),
-            cardNumber: String(baseCardNumber)
-          });
-        } catch (gasErr) {
-          console.warn("GAS delete failed (non-critical):", gasErr);
-        }
 
         await loadData();
         renderAreas();
@@ -926,14 +905,6 @@ if (elements.deletedCardList) {
             }
           }
 
-          const res = await apiRequest("restoreDeletedCard", {
-            areaId,
-            cardNumber
-          });
-          if (!res.success) {
-            alert(res.message || "삭제 카드 복원에 실패했습니다.");
-            return;
-          }
           await loadData();
           renderAreas();
           renderCards();
@@ -963,14 +934,6 @@ if (elements.deletedCardList) {
             }
           }
 
-          const res = await apiRequest("purgeDeletedCard", {
-            areaId,
-            cardNumber
-          });
-          if (!res.success) {
-            alert(res.message || "삭제 카드 영구 삭제에 실패했습니다.");
-            return;
-          }
           await loadData();
           renderAdminPanel();
           setStatus("삭제된 카드가 영구 삭제되었습니다.");
@@ -1186,4 +1149,27 @@ if (elements.completionList) {
     // 이 부분은 나중에 방문 기록 수정/삭제 로직이 필요할 때 구현할 수 있습니다.
     // 현재는 admin.js에서 직접 처리하는 경우도 있습니다.
   });
+}
+
+// 방문 기록 폼 및 관련 버튼 리스너 추가
+if (elements.visitForm) {
+  elements.visitForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    saveVisit(e);
+  });
+}
+if (elements.visitDelete) {
+  elements.visitDelete.addEventListener("click", deleteVisit);
+}
+if (elements.visitClearRevisit) {
+  elements.visitClearRevisit.addEventListener("click", visitClearRevisit);
+}
+if (elements.visitClearStudy) {
+  elements.visitClearStudy.addEventListener("click", visitClearStudy);
+}
+if (elements.visitClearSix) {
+  elements.visitClearSix.addEventListener("click", visitClearSix);
+}
+if (elements.visitClearBanned) {
+  elements.visitClearBanned.addEventListener("click", visitClearBanned);
 }
