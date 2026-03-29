@@ -1249,7 +1249,10 @@ const renderCarAssignmentsPanel = () => {
     header.innerHTML = driverName
       ? `차량 ${car.carId}<br />(${driverName})`
       : `차량 ${car.carId}`;
-    header.addEventListener("dblclick", async () => {
+    header.addEventListener("click", async () => {
+      // 모바일 지원을 위해 dblclick 대신 click으로 변경하고 안내 문구 추가
+      if (!window.confirm(`차량 ${car.carId}에 카드를 수동으로 배정하시겠습니까?`)) return;
+      
       let areaId = state.selectedArea || state.filterArea;
       if (!areaId || areaId === "all") {
         const input = window.prompt("배정할 구역번호를 입력해 주세요.");

@@ -74,11 +74,13 @@ const renderCards = () => {
     return;
   }
   if (query) {
+    const lowerQuery = query.toLowerCase().replace(/\s+/g, "");
     cards = cards.filter((card) => {
       const areaId = String(card["구역번호"] || "");
       const area = state.data.areas.find(a => String(a["구역번호"]) === areaId);
       const leader = area ? (area["인도자"] || "") : "";
-      return `${card["주소"] || ""} ${card["상세주소"] || ""} ${card["정기방문자"] || ""} ${leader}`.includes(query);
+      const searchTarget = `${card["주소"] || ""} ${card["상세주소"] || ""} ${card["정기방문자"] || ""} ${leader}`.toLowerCase().replace(/\s+/g, "");
+      return searchTarget.includes(lowerQuery);
     });
   }
   if (state.filterVisit === "meet") {

@@ -443,9 +443,8 @@ if (elements.adminCarEdit) {
 if (elements.evangelistList) {
   elements.evangelistList.addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-action]");
-    if (!button) {
-      return;
-    }
+    if (!button) return;
+    event.stopPropagation();
     const action = button.dataset.action;
     const rowEl = button.closest("tr");
     if (!rowEl) {

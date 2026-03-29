@@ -483,67 +483,70 @@ const loadData = async () => {
   setLoading(true, "데이터 불러오는 중...");
   try {
     if (supabaseClient) {
-      const { data: areas, error: areaError } = await supabaseClient.from("areas").select("*");
-      if (areaError) {
-        console.error("Supabase load error (areas):", areaError);
-      }
-      if (areas && areas.length > 0) {
-        const { data: cards, error: cardsError } = await supabaseClient.from("cards").select("*");
-        if (cardsError) console.error("Supabase load error (cards):", cardsError);
-        
-        const { data: evangelists } = await supabaseClient.from("evangelists").select("*");
-        const { data: assignments } = await supabaseClient.from("car_assignments").select("*").gte("date", toIsoDate(new Date()));
-        const { data: inviteCampaign } = await supabaseClient.from("invite_campaign").select("*").order("created_at", { ascending: false }).limit(1);
-        const { data: completions } = await supabaseClient.from("completions").select("*");
-        const { data: deletedCards } = await supabaseClient.from("deleted_cards").select("*").order("deleted_at", { ascending: false });
+      try {
+        const { data: areas, error: areaError } = await supabaseClient.from("areas").select("*");
+        if (areaError) throw areaError;
 
-        updateAppTitle();
+        if (areas && areas.length > 0) {
+          const { data: cards, error: cardsError } = await supabaseClient.from("cards").select("*");
+          if (cardsError) console.error("Supabase load error (cards):", cardsError);
+          
+          const { data: evangelists } = await supabaseClient.from("evangelists").select("*");
+          const { data: assignments } = await supabaseClient.from("car_assignments").select("*").gte("date", toIsoDate(new Date()));
+          const { data: inviteCampaign } = await supabaseClient.from("invite_campaign").select("*").order("created_at", { ascending: false }).limit(1);
+          const { data: completions } = await supabaseClient.from("completions").select("*");
+          const { data: deletedCards } = await supabaseClient.from("deleted_cards").select("*").order("deleted_at", { ascending: false });
 
-        state.data.areas = areas.map(a => ({
-          "구역번호": a.area_id, "시작날짜": a.start_date, "완료날짜": a.end_date, "인도자": a.leader
-        }));
-        state.data.cards = cards.map(c => ({
-          id: c.id,
-          "구역번호": c.area_id, "카드번호": c.card_number, "주소": c.address,
-          "상세주소": c.detail_address, "정보": c.memo, "읍면동": c.town,
-          "최근방문일": c.recent_visit_date, "이전봉사일": c.prev_visit_date,
-          "만남": c.meet, "부재": c.absent, "재방": c.revisit, "연구": c.study,
-          "6개월": c.six_months, "방문금지": c.banned, "차량": c.car_id, "배정날짜": c.assignment_date,
-          "초대장": c.invite
-        }));
-        state.data.deletedCards = (deletedCards || []).map(dc => ({
-          id: dc.id,
-          "구역번호": dc.area_id, "카드번호": dc.card_number, "주소": dc.address, "삭제일": dc.deleted_at
-        }));
-        state.data.evangelists = evangelists.map(e => ({
-          "이름": e.name, "비밀번호": e.password, "역할": e.role,
-          "성별": e.gender, "농인": isTrueValue(e.is_deaf), "운전자": isTrueValue(e.driver),
-          "차량": e.capacity, "부부": e.spouse
-        }));
-        state.data.assignments = assignments.map(a => ({
-          id: a.id,
-          "날짜": a.date, "시간대": a.slot, "차량": a.car_id, "이름": a.driver, "동승자": a.passengers || []
-        }));
-        state.inviteCampaign = inviteCampaign && inviteCampaign[0] ? {
-          id: inviteCampaign[0].id,
-          active: inviteCampaign[0].status === "active",
-          startDate: inviteCampaign[0].start_date,
-          endDate: inviteCampaign[0].end_date,
-          memo: inviteCampaign[0].memo
-        } : null;
-        state.data.completions = (completions || []).map(c => ({
-          id: c.id,
-          "구역번호": c.area_id, "시작날짜": c.start_date, "완료날짜": c.end_date, "인도자": c.leader
-        }));
+          updateAppTitle();
 
-        const { data: visits } = await supabaseClient.from("visits").select("*").order("visit_date", { ascending: false }).limit(1000);
-        state.data.visits = (visits || []).map(v => ({
-          id: v.id,
-          "구역번호": v.area_id, "카드번호": v.card_number, "방문날짜": v.visit_date,
-          "전도인": v.worker, "결과": v.result, "메모": v.note
-        }));
-        console.log("Supabase data loaded");
-        return;
+          state.data.areas = (areas || []).map(a => ({
+            "구역번호": a.area_id, "시작날짜": a.start_date, "완료날짜": a.end_date, "인도자": a.leader
+          }));
+          state.data.cards = (cards || []).map(c => ({
+            id: c.id,
+            "구역번호": c.area_id, "카드번호": c.card_number, "주소": c.address,
+            "상세주소": c.detail_address, "정보": c.memo, "읍면동": c.town,
+            "최근방문일": c.recent_visit_date, "이전봉사일": c.prev_visit_date,
+            "만남": c.meet, "부재": c.absent, "재방": c.revisit, "연구": c.study,
+            "6개월": c.six_months, "방문금지": c.banned, "차량": c.car_id, "배정날짜": c.assignment_date,
+            "초대장": c.invite
+          }));
+          state.data.deletedCards = (deletedCards || []).map(dc => ({
+            id: dc.id,
+            "구역번호": dc.area_id, "카드번호": dc.card_number, "주소": dc.address, "삭제일": dc.deleted_at
+          }));
+          state.data.evangelists = (evangelists || []).map(e => ({
+            "이름": e.name, "비밀번호": e.password, "역할": e.role,
+            "성별": e.gender, "농인": isTrueValue(e.is_deaf), "운전자": isTrueValue(e.driver),
+            "차량": e.capacity, "부부": e.spouse
+          }));
+          state.data.assignments = (assignments || []).map(a => ({
+            id: a.id,
+            "날짜": a.date, "시간대": a.slot, "차량": a.car_id, "이름": a.driver, "동승자": a.passengers || []
+          }));
+          state.inviteCampaign = inviteCampaign && inviteCampaign[0] ? {
+            id: inviteCampaign[0].id,
+            active: inviteCampaign[0].status === "active",
+            startDate: inviteCampaign[0].start_date,
+            endDate: inviteCampaign[0].end_date,
+            memo: inviteCampaign[0].memo
+          } : null;
+          state.data.completions = (completions || []).map(c => ({
+            id: c.id,
+            "구역번호": c.area_id, "시작날짜": c.start_date, "완료날짜": c.end_date, "인도자": c.leader
+          }));
+
+          const { data: visits } = await supabaseClient.from("visits").select("*").order("visit_date", { ascending: false }).limit(1000);
+          state.data.visits = (visits || []).map(v => ({
+            id: v.id,
+            "구역번호": v.area_id, "카드번호": v.card_number, "방문날짜": v.visit_date,
+            "전도인": v.worker, "결과": v.result, "메모": v.note
+          }));
+          console.log("Supabase data loaded");
+          return;
+        }
+      } catch (supaErr) {
+        console.warn("Supabase loading failed, trying Google Sheets:", supaErr);
       }
     }
 
@@ -561,6 +564,9 @@ const loadData = async () => {
     state.data.deletedCards = data.deletedCards || [];
 
     console.log("Google Sheets data loaded (Fallback)");
+  } catch (err) {
+    console.error("Data load error:", err);
+    alert("데이터를 불러오지 못했습니다: " + err.message);
   } finally {
     setLoading(false);
   }
