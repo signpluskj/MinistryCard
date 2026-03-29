@@ -529,16 +529,15 @@ const renderFullCarDashboard = (box, rows) => {
   sortedCarIds.forEach(cId => {
     const g = carGroups[cId];
     lines.push(`<div class="car-dashboard-row" style="margin-bottom:12px;">`);
-    lines.push(`  <div style="font-size:14px; color:#15803d;"><strong>차량 ${cId}</strong> | 운전자: ${g.driver}${g.passengers.length ? " | " + g.passengers.join(", ") : ""}</div>`);
+    lines.push(`  <div style="font-size:15px; color:black;"><strong>차량 ${cId}</strong> | 운전자: ${g.driver}${g.passengers.length ? " | " + g.passengers.join(", ") : ""}</div>`);
     if (g.cards.length) {
       g.cards.sort((a, b) => compareCardNumbers(a, b));
-      lines.push(`  <div style="font-size:13px; color:#166534; margin-top:2px; padding-left:10px; border-left:2px solid #86efac;">${g.cards.join(", ")}</div>`);
+      lines.push(`  <div style="font-size:14px; color:black; margin-top:2px; padding-left:10px; border-left:2px solid #86efac;">${g.cards.join(", ")}</div>`);
     } else {
-      lines.push(`  <div style="font-size:13px; color:#94a3b8; margin-top:2px; padding-left:10px; border-left:2px solid #e2e8f0;">배정된 카드 없음</div>`);
+      lines.push(`  <div style="font-size:14px; color:#94a3b8; margin-top:2px; padding-left:10px; border-left:2px solid #e2e8f0;">배정된 카드 없음</div>`);
     }
     lines.push(`</div>`);
   });
-
   box.innerHTML = lines.join("");
   box.classList.remove("hidden");
 };
