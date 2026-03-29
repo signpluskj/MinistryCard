@@ -472,7 +472,7 @@ const renderMyCarInfo = () => {
   const lines = [];
   lines.push(`<div class="car-info-main" style="display:flex; justify-content:space-between; align-items:center;">
     <span>${textParts.join(" | ")}</span>
-    <span style="font-size:12px; font-weight:normal; color:#16a34a;">▼ 전체 보기</span>
+    <span style="font-size:16px; font-weight:bold; color:#16a34a;">▼</span>
   </div>`);
   
   const cards = (state.data.cards || []).filter(
