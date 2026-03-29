@@ -21,7 +21,7 @@ const updateMenuVisibility = () => {
 const enterDashboard = async (user) => {
   state.user = user;
   elements.userInfo.textContent = `${state.user.name} (${state.user.role})`;
-  elements.menuToggle.style.display = "inline-block";
+  elements.menuToggle.classList.remove("hidden");
   updateMenuVisibility();
   elements.loginPanel.classList.add("hidden");
   elements.dashboard.classList.remove("hidden");
@@ -133,17 +133,20 @@ const tryAutoLogin = async () => {
   } catch (e) {}
 };
 
-const logout = () => {
+window.logout = () => {
   state.user = null;
   state.isSuperAdmin = false;
-  elements.configPanel.classList.add("hidden");
+  if (elements.configPanel) elements.configPanel.classList.add("hidden");
   try {
     window.localStorage.removeItem("mcUser");
   } catch (e) {}
-  elements.userInfo.textContent = "";
-  elements.menuToggle.style.display = "none";
-  elements.dashboard.classList.add("hidden");
-  elements.loginPanel.classList.remove("hidden");
-  elements.nameInput.value = "";
-  elements.passwordInput.value = "";
+  if (elements.userInfo) elements.userInfo.textContent = "";
+  if (elements.menuToggle) elements.menuToggle.classList.add("hidden");
+  if (elements.dashboard) elements.dashboard.classList.add("hidden");
+  if (elements.loginPanel) elements.loginPanel.classList.remove("hidden");
+  if (elements.nameInput) elements.nameInput.value = "";
+  if (elements.passwordInput) elements.passwordInput.value = "";
+  
+  // 사이드 메뉴도 닫기
+  if (elements.sideMenu) elements.sideMenu.classList.add("hidden");
 };

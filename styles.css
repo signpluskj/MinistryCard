@@ -21,7 +21,7 @@ body {
   padding: 0 12px;
   background: #1f6feb;
   color: white;
-  gap: 8px;
+  gap: 12px;
   position: sticky;
   top: 0;
   z-index: 1000;
@@ -58,10 +58,15 @@ body {
   border: none;
   background: transparent;
   color: inherit;
-  font-size: 20px;
+  font-size: 24px;
   cursor: pointer;
-  padding: 4px 8px;
-  display: none;
+  padding: 8px 12px;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
 }
 
 .header-right {
@@ -89,6 +94,16 @@ body {
   background: #f0fdf4;
   border-radius: 12px;
   margin-bottom: 0;
+  transition: all 0.2s ease;
+}
+
+.car-info-clickable {
+  cursor: pointer;
+}
+
+.car-info-clickable:hover {
+  background: #dcfce7;
+  border-color: #16a34a;
 }
 
 .car-info-separator {
@@ -1528,8 +1543,8 @@ button.secondary {
 }
 
 .icon-button {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border-radius: 50%;
   border: 1px solid #cbd2d9;
@@ -1539,7 +1554,7 @@ button.secondary {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1;
 }
 

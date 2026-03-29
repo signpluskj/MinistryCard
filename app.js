@@ -423,7 +423,9 @@ const renderMyCarInfo = () => {
   
   const showNoInfo = () => {
     box.innerHTML = '<div class="car-info-main">오늘 배정된 차량 정보가 없습니다.</div>';
+    box.classList.remove("car-info-clickable");
     box.classList.remove("hidden");
+    box.onclick = null;
   };
 
   if (!rows.length || !name) {
@@ -442,6 +444,18 @@ const renderMyCarInfo = () => {
     showNoInfo();
     return;
   }
+
+  // 배정 정보가 있는 경우 클릭 가능하도록 설정
+  box.classList.add("car-info-clickable");
+  box.onclick = () => {
+    state.carDashboardExpanded = !state.carDashboardExpanded;
+    renderMyCarInfo();
+  };
+
+  if (state.carDashboardExpanded) {
+    renderFullCarDashboard(box, rows);
+    return;
+  }
   
   const carId = String(myRow["차량"] || "");
   const driverName = normalizeAssignmentName(myRow["이름"]);
@@ -456,7 +470,10 @@ const renderMyCarInfo = () => {
     textParts.push(passengers.join(", "));
   }
   const lines = [];
-  lines.push(`<div class="car-info-main">${textParts.join(" | ")}</div>`);
+  lines.push(`<div class="car-info-main" style="display:flex; justify-content:space-between; align-items:center;">
+    <span>${textParts.join(" | ")}</span>
+    <span style="font-size:12px; font-weight:normal; color:#16a34a;">▼ 전체 보기</span>
+  </div>`);
   
   const cards = (state.data.cards || []).filter(
     (card) => getCardAssignedCarIdForDate(card, todayISO()) === carId
@@ -471,6 +488,53 @@ const renderMyCarInfo = () => {
     lines.push(`<div class="car-info-separator"></div>`);
     lines.push(`<div class="card-info-main">${labels.join(", ")}</div>`);
   }
+  box.innerHTML = lines.join("");
+  box.classList.remove("hidden");
+};
+
+const renderFullCarDashboard = (box, rows) => {
+  const lines = [];
+  lines.push(`<div class="car-info-main" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #bbf7d0; padding-bottom:6px;">
+    <span style="color:#166534">오늘의 전체 배정 현황</span>
+    <span style="font-size:12px; font-weight:normal; color:#16a34a;">▲ 접기</span>
+  </div>`);
+
+  const carGroups = {};
+  rows.forEach(row => {
+    const cId = String(row["차량"] || "미지정");
+    if (!carGroups[cId]) carGroups[cId] = { driver: "", passengers: [], cards: [] };
+    carGroups[cId].driver = normalizeAssignmentName(row["이름"]);
+    carGroups[cId].passengers = (row["동승자"] || []).map(p => normalizeAssignmentName(p)).filter(Boolean);
+  });
+
+  // 카드 정보 매칭
+  const allCards = state.data.cards || [];
+  allCards.forEach(card => {
+    const cId = getCardAssignedCarIdForDate(card, todayISO());
+    if (cId && carGroups[cId]) {
+      carGroups[cId].cards.push(String(card["카드번호"] || ""));
+    }
+  });
+
+  const sortedCarIds = Object.keys(carGroups).sort((a, b) => {
+    const na = parseInt(a), nb = parseInt(b);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    return a.localeCompare(b);
+  });
+
+  sortedCarIds.forEach(cId => {
+    const g = carGroups[cId];
+    lines.push(`<div class="car-dashboard-row" style="margin-bottom:12px;">`);
+    lines.push(`  <div style="font-size:14px; color:#15803d;"><strong>차량 ${cId}</strong> | 운전자: ${g.driver}${g.passengers.length ? " | " + g.passengers.join(", ") : ""}</div>`);
+    if (g.cards.length) {
+      g.cards.sort((a, b) => compareCardNumbers(a, b));
+      lines.push(`  <div style="font-size:13px; color:#166534; margin-top:2px; padding-left:10px; border-left:2px solid #86efac;">${g.cards.join(", ")}</div>`);
+    } else {
+      lines.push(`  <div style="font-size:13px; color:#94a3b8; margin-top:2px; padding-left:10px; border-left:2px solid #e2e8f0;">배정된 카드 없음</div>`);
+    }
+    lines.push(`</div>`);
+  });
+
   box.innerHTML = lines.join("");
   box.classList.remove("hidden");
 };
