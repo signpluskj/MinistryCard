@@ -94,7 +94,9 @@ const elements = {
   saveConfig: document.getElementById("save-config"),
   closeConfig: document.getElementById("close-config"),
   syncToSupabase: document.getElementById("sync-to-supabase"),
+  syncCardInfoOnly: document.getElementById("sync-card-info-only"),
   syncToSheets: document.getElementById("sync-to-sheets"),
+
   userInfo: document.getElementById("user-info"),
   carInfo: document.getElementById("car-info"),
   areaList: document.getElementById("area-list"),
@@ -141,7 +143,9 @@ const elements = {
   carSelectList: document.getElementById("car-select-list"),
   adminPanel: document.getElementById("admin-panel"),
   adminCardsList: document.getElementById("admin-cards-list"),
-  completionList: document.getElementById("completion-list"),  visitList: document.getElementById("visit-list"),
+  completionList: document.getElementById("admin-completions-list"),
+  visitList: document.getElementById("visit-list"),
+
   evangelistList: document.getElementById("evangelist-list"),
   carAssignPanel: document.getElementById("car-assign-panel"),
   bannedCardList: document.getElementById("banned-card-list"),

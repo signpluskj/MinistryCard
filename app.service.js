@@ -462,6 +462,27 @@ const saveVisit = async (event) => {
       if (insertError) throw insertError;
     }
 
+    // 구글 시트 동기화 (비동기, 비결정적)
+    try {
+      const gasPayload = {
+        areaId: String(areaId),
+        cardNumber: String(cardNumber),
+        visitDate: visitDate,
+        worker: worker,
+        result: result,
+        note: note
+      };
+      if (isEdit) {
+        gasPayload.oldVisitDate = state.editingVisit.oldVisitDate;
+        gasPayload.oldWorker = state.editingVisit.oldWorker;
+        await apiRequest("updateVisit", gasPayload);
+      } else {
+        await apiRequest("recordVisit", gasPayload);
+      }
+    } catch (gasErr) {
+      console.warn("GAS visit sync failed (non-critical):", gasErr);
+    }
+
     const { data: allVisits, error: visitsError } = await supabaseClient
       .from("visits")
       .select("*")

@@ -154,8 +154,8 @@ const renderAdminCards = () => {
           <div class="card-header">
             <strong>${cardNo} ${townText ? `(${townText})` : ""}</strong>
             <div class="card-badges">
-              <button class="status-badge" data-action="save-card" data-area-id="${areaId}" data-card-number="${cardNo}" style="background-color: #3b82f6; color: white; border: none;">저장</button>
-              <button class="status-badge" data-action="delete-card" data-area-id="${areaId}" data-card-number="${cardNo}" style="background-color: #ef4444; color: white; border: none;">삭제</button>
+              <button class="status-badge" data-card-action="save-card" data-area-id="${areaId}" data-card-number="${cardNo}" style="background-color: #3b82f6; color: white; border: none;">저장</button>
+              <button class="status-badge" data-card-action="delete-card" data-area-id="${areaId}" data-card-number="${cardNo}" style="background-color: #ef4444; color: white; border: none;">삭제</button>
             </div>
           </div>
           <div class="card-line">읍면동: <input type="text" value="${card["읍면동"] || ""}" data-field="town"></div>

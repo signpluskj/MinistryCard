@@ -28,6 +28,7 @@ if (elements.searchButton) {
 
 if (elements.saveConfig) elements.saveConfig.addEventListener("click", saveConfig);
 if (elements.syncToSupabase) elements.syncToSupabase.addEventListener("click", migrateToSupabase);
+if (elements.syncCardInfoOnly) elements.syncCardInfoOnly.addEventListener("click", syncCardInfoOnly);
 if (elements.syncToSheets) elements.syncToSheets.addEventListener("click", migrateToSheets);
 if (elements.backupToExcel) elements.backupToExcel.addEventListener("click", exportToExcel);
 if (elements.loginButton) elements.loginButton.addEventListener("click", login);
@@ -609,8 +610,8 @@ if (elements.evangelistList) {
   });
 }
 
-if (elements.completionList) {
-  elements.completionList.addEventListener("click", async (event) => {
+if (elements.adminCardsList) {
+  elements.adminCardsList.addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-card-action]");
     if (!button) {
       return;
@@ -661,18 +662,38 @@ if (elements.completionList) {
       button.disabled = true;
       setLoading(true, "구역카드를 추가하는 중...");
       try {
+        if (supabaseClient) {
+          const dbData = {
+            area_id: String(payload.areaId),
+            card_number: String(payload.cardNumber),
+            address: payload.address,
+            detail_address: payload.detailAddress,
+            town: payload.town,
+            memo: payload.memo,
+            six_months: !!payload.sixMonths,
+            banned: !!payload.banned,
+            revisit: !!payload.revisit,
+            study: !!payload.study
+          };
+          await supabaseClient
+            .from("cards")
+            .upsert(dbData, { onConflict: "area_id, card_number" });
+        }
+
         const res = await apiRequest("upsertCard", payload);
         if (!res.success) {
           alert(res.message || "구역카드 저장에 실패했습니다.");
           return;
         }
         state.data.cards = res.cards || [];
+        await loadData();
         renderAreas();
         renderCards();
         renderAdminPanel();
         setStatus("구역카드가 추가되었습니다.");
       } catch (e) {
-        alert("구역카드 저장 중 오류가 발생했습니다.");
+        console.error(e);
+        alert("구역카드 저장 중 오류가 발생했습니다: " + e.message);
       } finally {
         button.textContent = originalText;
         button.disabled = false;
@@ -680,8 +701,8 @@ if (elements.completionList) {
       }
       return;
     }
-    const baseCardNumber = rowEl.dataset.cardNumber || "";
-    if (!baseCardNumber) {
+    const baseCardNumber = button.dataset.cardNumber || rowEl.dataset.cardNumber || "";
+    if (!baseCardNumber && action !== "create-card") {
       alert("카드번호 정보를 찾을 수 없습니다.");
       return;
     }
@@ -690,6 +711,13 @@ if (elements.completionList) {
       const detailInput = getInput("detailAddress");
       const memoInput = getInput("memo");
       const townInput = getInput("town");
+
+      // 기존 카드의 상태를 가져오기 위해 state.data.cards에서 검색
+      const existingCard = (state.data.cards || []).find(c => 
+        String(c["구역번호"]) === String(areaId) && 
+        String(c["카드번호"]) === String(baseCardNumber)
+      );
+
       const payload = {
         areaId,
         cardNumber: baseCardNumber,
@@ -713,8 +741,12 @@ if (elements.completionList) {
           area_id: String(payload.areaId),
           card_number: String(payload.cardNumber),
           address: payload.address,
-          meet: !!payload.meet,
-          absent: !!payload.absent,
+          detail_address: payload.detailAddress,
+          town: payload.town,
+          memo: payload.memo,
+          // 기존 상태 보존
+          meet: existingCard ? !!existingCard["만남"] : false,
+          absent: existingCard ? !!existingCard["부재"] : false,
           revisit: !!payload.revisit,
           study: !!payload.study,
           six_months: !!payload.sixMonths,
@@ -726,6 +758,12 @@ if (elements.completionList) {
           .upsert(dbData, { onConflict: "area_id, card_number" });
 
         if (error) throw error;
+
+        try {
+          await apiRequest("upsertCard", payload);
+        } catch (gasErr) {
+          console.warn("GAS upsert failed (non-critical):", gasErr);
+        }
 
         await loadData();
         renderAreas();
@@ -1140,4 +1178,12 @@ if (elements.userInfo) {
   });
 }
 
-loadApiUrl();
+if (elements.completionList) {
+  elements.completionList.addEventListener("click", async (event) => {
+    const btn = event.target.closest("button");
+    if (!btn) return;
+    
+    // 이 부분은 나중에 방문 기록 수정/삭제 로직이 필요할 때 구현할 수 있습니다.
+    // 현재는 admin.js에서 직접 처리하는 경우도 있습니다.
+  });
+}

@@ -189,10 +189,10 @@ create table if not exists cards (
   id uuid primary key default gen_random_uuid(),
   area_id text not null,
   card_number text not null,
+  town text,
   address text,
   detail_address text,
   memo text,
-  town text,
   recent_visit_date date,
   prev_visit_date date,
   meet boolean default false,
@@ -213,7 +213,10 @@ create table if not exists deleted_cards (
   id uuid primary key default gen_random_uuid(),
   area_id text not null,
   card_number text not null,
+  town text,
   address text,
+  detail_address text,
+  memo text,
   deleted_at timestamptz default now(),
   unique(area_id, card_number)
 );
@@ -238,7 +241,8 @@ create table if not exists visits (
   worker text,
   result text,
   note text,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  unique(area_id, card_number, visit_date, worker)
 );
 create index if not exists idx_visits_area_card_date on visits(area_id, card_number, visit_date desc);
 
@@ -259,7 +263,8 @@ create table if not exists car_assignments (
   car_id text,
   driver text,
   passengers jsonb default '[]'::jsonb,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  unique(date, slot, car_id)
 );
 
 create table if not exists volunteer_weeks (

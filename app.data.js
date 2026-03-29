@@ -179,6 +179,49 @@ const loadVolunteerConfig = async () => {
   }
 };
 
+const syncCardInfoOnly = async () => {
+  if (!supabaseClient) {
+    alert("Supabase 설정이 올바르지 않습니다.");
+    return;
+  }
+  if (!confirm("구글 시트에서 구역카드 정보(읍면동, 주소, 상세주소, 정보)만 가져와서 덮어쓰시겠습니까?\n(방문 내역이나 상태는 유지됩니다)")) {
+    return;
+  }
+
+  setLoading(true, "구글 시트에서 카드 정보 가져오는 중...");
+  try {
+    const data = await apiRequest("bootstrap", {}, "GET");
+    if (data.error) throw new Error(data.error);
+
+    setLoading(true, "구역카드 정보 업데이트 중...");
+    const cards = (data.cards || []).map(c => ({
+      area_id: String(c["구역번호"] || ""),
+      card_number: String(c["카드번호"] || ""),
+      town: c["읍면동"],
+      address: c["주소"],
+      detail_address: c["상세주소"],
+      memo: c["정보"]
+    })).filter(c => c.area_id && c.card_number);
+
+    if (cards.length) {
+      const { error } = await supabaseClient.from("cards").upsert(cards, { onConflict: "area_id, card_number" });
+      if (error) throw error;
+    }
+
+    setLoading(true, "데이터 다시 불러오는 중...");
+    await loadData();
+    renderAreas();
+    renderCards();
+    renderAdminPanel();
+    alert("구역카드 정보가 업데이트되었습니다.");
+  } catch (err) {
+    console.error("Sync card info error:", err);
+    alert("동기화 중 오류가 발생했습니다: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
 const migrateToSupabase = async () => {
   if (!supabaseClient) {
     alert("Supabase 설정이 올바르지 않습니다.");
@@ -249,6 +292,9 @@ const migrateToSupabase = async () => {
       area_id: String(dc["구역번호"] || ""),
       card_number: String(dc["카드번호"] || ""),
       address: dc["주소"],
+      detail_address: dc["상세주소"],
+      town: dc["읍면동"],
+      memo: dc["정보"],
       deleted_at: toIsoDate(dc["삭제일"]) || new Date().toISOString()
     })).filter(dc => dc.area_id && dc.card_number);
     console.log("Processed deleted cards:", deletedCards);
@@ -292,14 +338,18 @@ const migrateToSupabase = async () => {
       area_id: String(v["구역번호"] || v["areaId"] || ""),
       card_number: String(v["카드번호"] || v["구역카드"] || v["cardNumber"] || ""),
       visit_date: toIsoDate(v["방문날짜"] || v["방문일"] || v["날짜"]),
-      worker: v["전도인"] || v["방문자"],
+      worker: String(v["전도인"] || v["방문자"] || "").trim(),
       result: v["결과"] || v["방문결과"],
       note: v["메모"] || v["비고"]
-    })).filter(v => v.area_id && v.card_number);
+    })).filter(v => v.area_id && v.card_number && v.visit_date);
     if (visits.length) {
-      for (let i = 0; i < visits.length; i += 500) {
-        const res = await supabaseClient.from("visits").insert(visits.slice(i, i + 500));
-        checkError(res, `visits (chunk ${i / 500 + 1})`);
+      for (let i = 0; i < visits.length; i += 200) {
+        // ignoreDuplicates: true 를 사용하여 이미 존재하는 방문기록은 덮어쓰지 않음
+        const res = await supabaseClient.from("visits").upsert(visits.slice(i, i + 200), { 
+          onConflict: "area_id, card_number, visit_date, worker",
+          ignoreDuplicates: true 
+        });
+        checkError(res, `visits (chunk ${i / 200 + 1})`);
       }
     }
 
@@ -310,9 +360,12 @@ const migrateToSupabase = async () => {
       car_id: String(a["차량"] || ""),
       driver: a["운전자"] || a["이름"],
       passengers: Array.isArray(a["동승자"]) ? a["동승자"] : []
-    }));
+    })).filter(a => a.date && a.car_id);
     if (assignments.length) {
-      const res = await supabaseClient.from("car_assignments").insert(assignments);
+      const res = await supabaseClient.from("car_assignments").upsert(assignments, {
+        onConflict: "date, slot, car_id",
+        ignoreDuplicates: true
+      });
       checkError(res, "car_assignments");
     }
 
@@ -513,7 +566,9 @@ const loadData = async () => {
           }));
           state.data.deletedCards = (deletedCards || []).map(dc => ({
             id: dc.id,
-            "구역번호": dc.area_id, "카드번호": dc.card_number, "주소": dc.address, "삭제일": dc.deleted_at
+            "구역번호": dc.area_id, "카드번호": dc.card_number, "주소": dc.address,
+            "상세주소": dc.detail_address, "정보": dc.memo, "읍면동": dc.town,
+            "삭제일": dc.deleted_at
           }));
           state.data.evangelists = (evangelists || []).map(e => ({
             "이름": e.name, "비밀번호": e.password, "역할": e.role,
@@ -542,6 +597,7 @@ const loadData = async () => {
             "구역번호": v.area_id, "카드번호": v.card_number, "방문날짜": v.visit_date,
             "전도인": v.worker, "결과": v.result, "메모": v.note
           }));
+
           console.log("Supabase data loaded");
           return;
         }
