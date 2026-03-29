@@ -1,3 +1,31 @@
+if (elements.filterArea) {
+  elements.filterArea.addEventListener("change", () => {
+    state.filterArea = elements.filterArea.value;
+    renderCards();
+  });
+}
+
+if (elements.filterVisit) {
+  elements.filterVisit.addEventListener("change", () => {
+    state.filterVisit = elements.filterVisit.value;
+    renderCards();
+  });
+}
+
+if (elements.searchInput) {
+  elements.searchInput.addEventListener("input", () => {
+    state.searchQuery = elements.searchInput.value;
+    renderCards();
+  });
+}
+
+if (elements.searchButton) {
+  elements.searchButton.addEventListener("click", () => {
+    state.searchQuery = elements.searchInput.value;
+    renderCards();
+  });
+}
+
 if (elements.saveConfig) elements.saveConfig.addEventListener("click", saveConfig);
 if (elements.syncToSupabase) elements.syncToSupabase.addEventListener("click", migrateToSupabase);
 if (elements.syncToSheets) elements.syncToSheets.addEventListener("click", migrateToSheets);

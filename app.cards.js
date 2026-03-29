@@ -87,7 +87,9 @@ const renderCards = () => {
     cards = cards.filter((card) => isTrueValue(card["만남"]));
   } else if (state.filterVisit === "absent") {
     cards = cards.filter(
-      (card) => card["만남"] === false || isTrueValue(card["부재"])
+      (card) => (isTrueValue(card["부재"]) || card["만남"] === false) && 
+                !isTrueValue(card["재방"]) && 
+                !isTrueValue(card["연구"])
     );
   } else if (state.filterVisit === "revisit") {
     cards = cards.filter((card) => isTrueValue(card["재방"]));
@@ -97,45 +99,6 @@ const renderCards = () => {
     cards = cards.filter((card) => isTrueValue(card["6개월"]));
   } else if (state.filterVisit === "banned") {
     cards = cards.filter((card) => isTrueValue(card["방문금지"]));
-  } else if (state.filterVisit === "campaign-unvisited") {
-    const info = state.inviteCampaign;
-    if (!info || !info.startDate) {
-      cards = [];
-    } else {
-      const start = info.startDate;
-      const end = info.endDate || start;
-      const visits = state.data.visits || [];
-      cards = cards.filter((card) => {
-        const a = String(card["구역번호"] || "");
-        const c = String(card["카드번호"] || "");
-        if (!a || !c) {
-          return false;
-        }
-        const hasVisit = visits.some((row) => {
-          const ra = String(row["구역번호"] || row["areaId"] || "");
-          const rc = String(
-            row["카드번호"] || row["구역카드"] || row["cardNumber"] || ""
-          );
-          if (ra !== a || rc !== c) {
-            return false;
-          }
-          const dText =
-            normalizeVisitDateText(
-              row["방문날짜"] ||
-                row["방문일"] ||
-                row["방문일자"] ||
-                row["날짜"] ||
-                row["방문일시"] ||
-                row["일자"]
-            ) || "";
-          if (!dText) {
-            return false;
-          }
-          return dText >= start && dText <= end;
-        });
-        return !hasVisit;
-      });
-    }
   }
   cards.sort((a, b) => {
     // 1순위: 차량 배정 여부 (오늘 날짜 기준)
