@@ -1225,6 +1225,52 @@ const setCarAssignDate = async (isoDate) => {
   }
 };
 
+const moveMember = (name, fromCarId, toCarId) => {
+  if (!name) return;
+
+  const cars = state.carAssignments || [];
+  const fromCar = fromCarId ? cars.find((c) => String(c.carId) === String(fromCarId)) : null;
+  const toCar = cars.find((c) => String(c.carId) === String(toCarId));
+
+  if (!toCar) return;
+
+  if (fromCar) {
+    if (fromCarId === toCarId) {
+      // 같은 차량 내에서의 이동: 해당 인원을 가장 앞으로 보내서 운전자로 변경
+      const otherMembers = (fromCar.members || []).filter((m) => m !== name);
+      fromCar.members = [name, ...otherMembers];
+      fromCar.driver = name;
+    } else {
+      // 다른 차량으로 이동
+      fromCar.members = (fromCar.members || []).filter((m) => m !== name);
+      if (fromCar.driver === name) {
+        fromCar.driver = fromCar.members.length > 0 ? fromCar.members[0] : "";
+      }
+
+      if (!toCar.members.includes(name)) {
+        toCar.members.push(name);
+      }
+      
+      // 대상 차량에 운전자가 없으면 운전자로 설정
+      if (!toCar.driver) {
+        toCar.driver = name;
+      }
+    }
+  } else {
+    // 미배정 명단에서 차량으로 추가
+    if (!toCar.members.includes(name)) {
+      toCar.members.push(name);
+    }
+    if (!toCar.driver) {
+      toCar.driver = name;
+    }
+  }
+
+  state.carAssignments = cars;
+  renderCarAssignmentsPanel();
+  renderSelectedParticipants(); // 미배정 명단 갱신
+};
+
 const renderCarAssignmentsPanel = () => {
   const panel = elements.carAssignPanel;
   if (!panel) {
@@ -1310,7 +1356,54 @@ const renderCarAssignmentsPanel = () => {
       item.draggable = true;
       item.dataset.name = name;
       item.dataset.carId = car.carId;
+
+      // 드래그 시작
+      item.addEventListener("dragstart", (e) => {
+        item.classList.add("dragging");
+        e.dataTransfer.setData("text/plain", JSON.stringify({
+          name: name,
+          fromCarId: car.carId
+        }));
+      });
+
+      item.addEventListener("dragend", () => {
+        item.classList.remove("dragging");
+      });
+
+      // 터치/클릭 선택 및 이동 처리
+      item.addEventListener("click", (e) => {
+        e.stopPropagation();
+        
+        // 이미 다른 차량의 인원이 선택되어 있다면 이 차량으로 이동
+        if (carAssignTapSelection && carAssignTapSelection.name !== name) {
+          moveMember(carAssignTapSelection.name, carAssignTapSelection.fromCarId, car.carId);
+          carAssignTapSelection = null;
+          return;
+        }
+
+        // 선택 해제 또는 새로운 선택
+        const isCurrentlySelected = item.classList.contains("tap-selected");
+        document.querySelectorAll(".car-member, .selected-person").forEach(el => el.classList.remove("tap-selected"));
+        
+        if (isCurrentlySelected) {
+          carAssignTapSelection = null;
+        } else {
+          item.classList.add("tap-selected");
+          carAssignTapSelection = { name, fromCarId: car.carId };
+        }
+      });
+
       membersBox.appendChild(item);
+    });
+
+    // ... (중략: 드래그 이벤트는 유지됨)
+
+    // 터치 이동 처리 (차량 헤더나 빈 공간 클릭 시 이동 대상 확정)
+    col.addEventListener("click", () => {
+      if (carAssignTapSelection) {
+        moveMember(carAssignTapSelection.name, carAssignTapSelection.fromCarId, car.carId);
+        carAssignTapSelection = null;
+      }
     });
     const cardTagsBox = document.createElement("div");
     cardTagsBox.className = "car-card-list";
@@ -1477,6 +1570,21 @@ const renderSelectedParticipants = () => {
     const item = document.createElement("div");
     item.className = "selected-person";
     item.textContent = name;
+    
+    // 클릭하여 선택
+    item.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isCurrentlySelected = item.classList.contains("tap-selected");
+      document.querySelectorAll(".car-member, .selected-person").forEach(el => el.classList.remove("tap-selected"));
+      
+      if (isCurrentlySelected) {
+        carAssignTapSelection = null;
+      } else {
+        item.classList.add("tap-selected");
+        carAssignTapSelection = { name, fromCarId: null }; // fromCarId가 null이면 미배정에서 이동함을 의미
+      }
+    });
+    
     frag.appendChild(item);
   });
   box.appendChild(frag);
