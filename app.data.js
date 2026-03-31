@@ -193,7 +193,7 @@ const purgeDeletedCardInSupabase = async (areaId, cardNumber) => {
 const apiRequest = async (action, payload = {}, method = "POST") => {
   if (!state.apiUrl) {
     if (state.isSuperAdmin) {
-      elements.configPanel.classList.remove("hidden");
+      showOverlay(elements.configPanel);
     }
     throw new Error("API URL이 설정되지 않았습니다.");
   }

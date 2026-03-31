@@ -173,11 +173,61 @@ const updateAppTitle = () => {
   const titleTextEl = document.getElementById("app-title-text");
   if (titleTextEl) {
     const cong = state.congregationName || "";
-    // Requirement: '회중 이름 + 봉사 카드'
-    const titleText = cong ? `${cong} 봉사 카드` : "봉사 카드 정보";
+    // Requirement: '회중 이름'만 표시 (봉사 카드 문구 삭제)
+    const titleText = cong ? cong : "봉사 카드 정보";
     titleTextEl.textContent = titleText;
   }
 };
+
+const showOverlay = (el) => {
+  if (!el) return;
+  el.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  window.history.pushState({ overlay: true }, "");
+};
+
+const closeAllPopups = () => {
+  const overlays = [
+    elements.areaOverlay,
+    elements.completionOverlay,
+    elements.volunteerOverlay,
+    elements.carAssignOverlay,
+    elements.adminOverlay,
+    elements.carSelectOverlay,
+    elements.inviteOverlay,
+    elements.configPanel,
+    elements.sideMenu
+  ];
+  let anyClosed = false;
+  overlays.forEach((overlay) => {
+    if (overlay && !overlay.classList.contains("hidden")) {
+      overlay.classList.add("hidden");
+      anyClosed = true;
+    }
+  });
+  if (anyClosed) {
+    document.body.style.overflow = "";
+  }
+  return anyClosed;
+};
+
+window.addEventListener("popstate", (event) => {
+  if (closeAllPopups()) {
+    // Popup was closed, history already moved back.
+  } else {
+    // No popup was open, we are at the main screen.
+    if (event.state && event.state.page === "main") {
+      // We moved back TO the main screen (shouldn't happen if we started at main)
+      return;
+    }
+    if (confirm("프로그램을 종료하시겠습니까?")) {
+      // Exit - history already moved back.
+    } else {
+      // Stay - push state back.
+      window.history.pushState({ page: "main" }, "");
+    }
+  }
+});
 
 const openCarSelectPopup = (areaId, cardNumbers) => {
   const cars = state.carAssignments || [];
@@ -228,7 +278,7 @@ const openCarSelectPopup = (areaId, cardNumbers) => {
         renderAdminPanel();
         renderMyCarInfo();
         setStatus("선택한 카드가 차량에 배정되었습니다.");
-        elements.carSelectOverlay.classList.add("hidden");
+        history.back();
       } catch (err) {
         console.error("Assign cards to cars error:", err);
         alert("카드 배정에 실패했습니다: " + err.message);
@@ -287,7 +337,7 @@ const openCarSelectPopup = (areaId, cardNumbers) => {
         renderAdminPanel();
         renderMyCarInfo();
         setStatus("차량 배정이 삭제되었습니다.");
-        elements.carSelectOverlay.classList.add("hidden");
+        history.back();
       } catch (err) {
         console.error("Unassign cards error:", err);
         alert("배정 삭제에 실패했습니다: " + err.message);
@@ -298,7 +348,7 @@ const openCarSelectPopup = (areaId, cardNumbers) => {
     elements.carSelectList.appendChild(unassignBtn);
   }
 
-  elements.carSelectOverlay.classList.remove("hidden");
+  showOverlay(elements.carSelectOverlay);
 };
 
 const getCardAssignedCarIdForDate = (card, isoDate) => {
@@ -1601,7 +1651,7 @@ const renderCarAssignPopup = () => {
   const userRole = String(state.user.role || "").trim();
   const isLeader = userRole === "관리자" || userRole === "인도자";
   if (!isLeader) {
-    elements.carAssignOverlay.classList.add("hidden");
+    history.back();
     return;
   }
 
@@ -1870,8 +1920,8 @@ const loadConfig = async () => {
     }
   }
   // 설정을 불러온 후 설정창을 숨김 (자동 로그인 시 잔상 제거)
-  if (elements.configPanel) {
-    elements.configPanel.classList.add("hidden");
+  if (elements.configPanel && !elements.configPanel.classList.contains("hidden")) {
+    history.back();
   }
 };
 
@@ -1931,7 +1981,7 @@ const saveConfig = async () => {
  else {
     alert("API URL이 로컬에 저장되었습니다. (Supabase 연결 안됨)");
   }
-  elements.configPanel.classList.add("hidden");
+  history.back();
 };
 
 const refreshAll = async () => {
@@ -1994,41 +2044,39 @@ const buildVolunteerDayList = () => {
 
 const getNearestVolunteerDateISO = (baseDate) => {
   const days = buildVolunteerDayList().filter((d) => Boolean(d.isoDate));
-  if (!days.length) {
-    return baseDate || todayISO();
+  const today = todayISO();
+  const requested = String(baseDate || today).trim();
+  
+  // 1. 요청한 날짜(기본값 오늘)가 봉사 명단에 정확히 있으면 해당 날짜 반환
+  const exact = days.find((d) => d.isoDate === requested);
+  if (exact) return exact.isoDate;
+
+  // 2. 명단에 없다면, 요청한 날짜보다 '미래'인 날짜 중 가장 가까운 것 찾기
+  const futureDays = days
+    .filter((d) => d.isoDate > requested)
+    .sort((a, b) => a.isoDate.localeCompare(b.isoDate));
+  
+  if (futureDays.length > 0) {
+    return futureDays[0].isoDate;
   }
-  const requested = String(baseDate || "").trim();
-  if (requested) {
-    const exact = days.find((d) => d.isoDate === requested);
-    if (exact) {
-      return exact.isoDate;
-    }
+
+  // 3. 미래 날짜도 없다면(모든 봉사 일정이 과거라면), 
+  // 요청한 날짜가 오늘일 경우 그냥 오늘을 반환 (과거로 돌아가지 않음)
+  if (requested === today) {
+    return today;
   }
-  const base = parseVisitDate(requested || todayISO()) || new Date();
-  const baseTime = new Date(
-    base.getFullYear(),
-    base.getMonth(),
-    base.getDate()
-  ).getTime();
-  const sorted = days
-    .slice()
-    .sort((a, b) => {
-      const da = parseVisitDate(a.isoDate);
-      const db = parseVisitDate(b.isoDate);
-      const ta = da
-        ? new Date(da.getFullYear(), da.getMonth(), da.getDate()).getTime()
-        : baseTime;
-      const tb = db
-        ? new Date(db.getFullYear(), db.getMonth(), db.getDate()).getTime()
-        : baseTime;
-      const diffA = Math.abs(ta - baseTime);
-      const diffB = Math.abs(tb - baseTime);
-      if (diffA !== diffB) {
-        return diffA - diffB;
-      }
-      return String(a.isoDate || "").localeCompare(String(b.isoDate || ""));
-    });
-  return sorted[0].isoDate || todayISO();
+
+  // 4. 그 외의 경우(명단이 아예 없거나 특정 과거 날짜 요청 시) 가장 가까운 날짜 반환
+  if (!days.length) return requested;
+  
+  const baseTime = parseVisitDate(requested).getTime();
+  const closest = days.slice().sort((a, b) => {
+    const ta = parseVisitDate(a.isoDate).getTime();
+    const tb = parseVisitDate(b.isoDate).getTime();
+    return Math.abs(ta - baseTime) - Math.abs(tb - baseTime);
+  })[0];
+
+  return closest.isoDate;
 };
 
 const ensureVolunteerSelection = () => {
@@ -2219,7 +2267,10 @@ const renderVolunteerOverlay = () => {
         if (d.isoDate === state.selectedVolunteerDate) {
           btn.classList.add("active");
         }
-        const dateLabel = formatVolunteerDateText(d.dateText || d.isoDate);
+        const dDate = parseVisitDate(d.isoDate);
+        const mm = dDate ? dDate.getMonth() + 1 : "";
+        const dd = dDate ? dDate.getDate() : "";
+        const dateLabel = mm && dd ? `${mm}/${String(dd).padStart(2, "0")}` : d.isoDate;
         const weekdayRaw = String(d.weekday || "").trim();
         const weekdayLabel = weekdayRaw ? (weekdayFullMap[weekdayRaw] || `${weekdayRaw}요일`).replace("요일", "") : "";
         btn.innerHTML = `<span class="weekday-chip-date">${dateLabel}</span><span class="weekday-chip-weekday">${weekdayLabel}</span>`;
@@ -2625,28 +2676,38 @@ const renderVolunteerOverlay = () => {
     const weekChipsContainer = document.createElement("div");
     weekChipsContainer.className = "volunteer-admin-week-chips-container";
 
-    const sortedWeeks = (weeks || []).slice().sort((a, b) => {
-      const aISO = a.weekStartISO || a.weekStartText || "";
-      const bISO = b.weekStartISO || b.weekStartText || "";
-      return aISO.localeCompare(bISO);
-    });
+    const today = todayISO();
+    const sortedWeeks = (weeks || []).slice()
+      .filter((w) => {
+        const ds = w.days || [];
+        if (ds.length > 0) {
+          // 주간 내의 모든 날짜 중 가장 늦은 날짜가 오늘보다 같거나 미래인지 확인
+          return ds.some(d => d.isoDate && d.isoDate >= today);
+        }
+        // 날짜 데이터가 없는 경우 주 시작 날짜를 기준으로 판단 (최소한 주 시작 날짜는 살아있어야 함)
+        const start = w.weekStartISO || w.weekStartText || "";
+        return !start || start >= today || (new Date(start).getTime() + 7 * 24 * 60 * 60 * 1000 >= new Date(today).getTime());
+      })
+      .sort((a, b) => {
+        const aISO = a.weekStartISO || a.weekStartText || "";
+        const bISO = b.weekStartISO || b.weekStartText || "";
+        return aISO.localeCompare(bISO);
+      });
     sortedWeeks.forEach((w) => {
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "volunteer-admin-week-chip";
-      const ds = w.days || [];
+      
+      const wDate = parseVisitDate(w.weekStartISO || w.weekStartText || "");
       let label = "";
-      if (ds.length) {
-        const first = ds[0];
-        const last = ds[ds.length - 1];
-        label =
-          `${formatVolunteerDateText(first.dateText || first.isoDate)} ~ ` +
-          `${formatVolunteerDateText(last.dateText || last.isoDate)}`;
+      if (wDate) {
+        const mm = wDate.getMonth() + 1;
+        const dd = String(wDate.getDate()).padStart(2, "0");
+        label = `${mm}/${dd}주`;
       } else {
-        label = formatVolunteerDateText(
-          w.weekStartText || w.weekStartISO || ""
-        );
+        label = w.weekStartText || w.weekStartISO || "알 수 없음";
       }
+
       chip.textContent = label;
       if (
         String(w.weekStartText || "") ===
@@ -3035,8 +3096,7 @@ const openVolunteerOverlay = async () => {
     return;
   }
   await loadVolunteerConfig();
-  elements.volunteerOverlay.classList.remove("hidden");
-  document.body.style.overflow = "hidden";
+  showOverlay(elements.volunteerOverlay);
   renderVolunteerOverlay();
 };
 
@@ -3133,15 +3193,15 @@ const renderAreas = () => {
     state.user &&
     (state.user.role === "관리자" || state.user.role === "인도자");
   const areasRows = state.data.areas || [];
-  let latestServiceDate = null;
+  let latestServiceDateStr = "";
   let hasTodayInProgress = false;
   areasRows.forEach((row) => {
-    const startD = row["시작날짜"] ? parseVisitDate(row["시작날짜"]) : null;
-    const endD = row["완료날짜"] ? parseVisitDate(row["완료날짜"]) : null;
-    const d = endD || startD;
-    if (d && !Number.isNaN(d.getTime())) {
-      if (!latestServiceDate || d.getTime() > latestServiceDate.getTime()) {
-        latestServiceDate = d;
+    const startStr = row["시작날짜"] ? toISODate(row["시작날짜"]) : "";
+    const endStr = row["완료날짜"] ? toISODate(row["완료날짜"]) : "";
+    const dStr = endStr || startStr;
+    if (dStr) {
+      if (!latestServiceDateStr || dStr > latestServiceDateStr) {
+        latestServiceDateStr = dStr;
       }
     }
      if (
@@ -3253,17 +3313,17 @@ const renderAreas = () => {
       if (isInviteArea) {
         item.classList.add("area-invite-campaign");
       }
-      const activityDate = areaCompleteDate || (startText ? parseVisitDate(startText) : null);
-      const isLastService = activityDate && latestServiceDate && activityDate.getTime() === latestServiceDate.getTime();
+      const activityDateStr = (areaInfo && areaInfo["완료날짜"]) ? toISODate(areaInfo["완료날짜"]) : ((areaInfo && areaInfo["시작날짜"]) ? toISODate(areaInfo["시작날짜"]) : "");
+      const isLastService = activityDateStr && latestServiceDateStr && activityDateStr === latestServiceDateStr;
 
       if (isToday) {
         if (inProgress) {
           item.classList.add("area-today");
-        } else if (isComplete) {
+        } else if (isComplete || hasDone) {
           item.classList.add("area-today-complete");
         }
       } else if (isLastService) {
-        if (isComplete) {
+        if (isComplete || hasDone) {
           item.classList.add("area-last-complete");
         } else if (inProgress) {
           item.classList.add("area-last-in-progress");
@@ -3627,6 +3687,7 @@ const exportToExcel = async () => {
 };
 
 // 앱 초기화 실행
+window.history.replaceState({ page: "main" }, "");
 loadConfig().then(() => {
   if (typeof tryAutoLogin === "function") {
     tryAutoLogin();

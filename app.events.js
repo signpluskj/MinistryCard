@@ -43,20 +43,20 @@ if (elements.appTitle) {
 if (elements.menuToggle) {
   elements.menuToggle.addEventListener("click", (e) => {
     e.stopPropagation();
-    elements.sideMenu.classList.remove("hidden");
+    showOverlay(elements.sideMenu);
   });
 }
 
 if (elements.menuClose) {
   elements.menuClose.addEventListener("click", () => {
-    elements.sideMenu.classList.add("hidden");
+    history.back();
   });
 }
 
 if (elements.sideMenu) {
   elements.sideMenu.addEventListener("click", (event) => {
     if (event.target === elements.sideMenu) {
-      elements.sideMenu.classList.add("hidden");
+      history.back();
     }
   });
 
@@ -85,7 +85,7 @@ if (elements.sideMenu) {
     }
 
     state.currentMenu = key;
-    elements.sideMenu.classList.add("hidden");
+    closeAllPopups(); // 히스토리를 건드리지 않고 돔에서만 모든 팝업 닫기
 
     if (key === "cards") {
       renderAreas();
@@ -94,8 +94,7 @@ if (elements.sideMenu) {
     } else if (key === "visits") {
       state.completionExpandedAreaId = null;
       if (elements.completionOverlay) {
-        elements.completionOverlay.classList.remove("hidden");
-        document.body.style.overflow = "hidden";
+        showOverlay(elements.completionOverlay);
         renderCompletionOverlayList();
       } else {
         renderVisitsView();
@@ -105,13 +104,11 @@ if (elements.sideMenu) {
       openVolunteerOverlay();
     } else if (["admin-cards", "admin-ev", "admin-banned", "admin-deleted"].includes(key)) {
       if (elements.adminOverlay) {
-        elements.adminOverlay.classList.remove("hidden");
-        document.body.style.overflow = "hidden";
+        showOverlay(elements.adminOverlay);
       }
       renderAdminPanel();
     } else if (key === "car-assign") {
-      elements.carAssignOverlay.classList.remove("hidden");
-      document.body.style.overflow = "hidden";
+      showOverlay(elements.carAssignOverlay);
       (async () => {
         await loadVolunteerConfig();
         const defaultDate = getNearestVolunteerDateISO(todayISO());
@@ -119,13 +116,12 @@ if (elements.sideMenu) {
       })();
     } else if (key === "invite-campaign") {
       if (elements.inviteOverlay) {
-        elements.inviteOverlay.classList.remove("hidden");
-        document.body.style.overflow = "hidden";
+        showOverlay(elements.inviteOverlay);
         renderInviteCampaignOverlay();
       }
     } else if (key === "config") {
       if (state.isSuperAdmin) {
-        elements.configPanel.classList.remove("hidden");
+        showOverlay(elements.configPanel);
       } else {
         alert("최고관리자만 설정에 접근할 수 있습니다.");
       }
@@ -135,99 +131,105 @@ if (elements.sideMenu) {
 
 if (elements.closeAreas) {
   elements.closeAreas.addEventListener("click", () => {
-    elements.areaOverlay.classList.add("hidden");
+    history.back();
   });
 }
 
 if (elements.areaOverlay) {
   elements.areaOverlay.addEventListener("click", (event) => {
     if (event.target === elements.areaOverlay) {
-      elements.areaOverlay.classList.add("hidden");
+      history.back();
     }
   });
 }
 
 if (elements.closeCompletion) {
   elements.closeCompletion.addEventListener("click", () => {
-    elements.completionOverlay.classList.add("hidden");
-    document.body.style.overflow = "";
+    history.back();
   });
 }
 
 if (elements.completionOverlay) {
   elements.completionOverlay.addEventListener("click", (event) => {
     if (event.target === elements.completionOverlay) {
-      elements.completionOverlay.classList.add("hidden");
-      document.body.style.overflow = "";
+      history.back();
     }
   });
 }
 
 if (elements.closeVolunteer) {
   elements.closeVolunteer.addEventListener("click", () => {
-    elements.volunteerOverlay.classList.add("hidden");
-    document.body.style.overflow = "";
+    history.back();
   });
 }
 
 if (elements.volunteerOverlay) {
   elements.volunteerOverlay.addEventListener("click", (event) => {
     if (event.target === elements.volunteerOverlay) {
-      elements.volunteerOverlay.classList.add("hidden");
-      document.body.style.overflow = "";
+      history.back();
     }
   });
 }
 
 if (elements.closeCarAssign) {
   elements.closeCarAssign.addEventListener("click", () => {
-    elements.carAssignOverlay.classList.add("hidden");
-    document.body.style.overflow = "";
+    history.back();
   });
 }
 
 if (elements.carAssignOverlay) {
   elements.carAssignOverlay.addEventListener("click", (event) => {
     if (event.target === elements.carAssignOverlay) {
-      elements.carAssignOverlay.classList.add("hidden");
-      document.body.style.overflow = "";
+      history.back();
     }
   });
 }
 
 if (elements.closeAdmin) {
   elements.closeAdmin.addEventListener("click", () => {
-    elements.adminOverlay.classList.add("hidden");
-    document.body.style.overflow = "";
+    history.back();
   });
 }
 
 if (elements.adminOverlay) {
   elements.adminOverlay.addEventListener("click", (event) => {
     if (event.target === elements.adminOverlay) {
-      elements.adminOverlay.classList.add("hidden");
-      document.body.style.overflow = "";
+      history.back();
     }
   });
 }
 
 if (elements.closeCarSelect) {
   elements.closeCarSelect.addEventListener("click", () => {
-    elements.carSelectOverlay.classList.add("hidden");
+    history.back();
   });
 }
 
 if (elements.carSelectOverlay) {
   elements.carSelectOverlay.addEventListener("click", (event) => {
     if (event.target === elements.carSelectOverlay) {
-      elements.carSelectOverlay.classList.add("hidden");
+      history.back();
     }
   });
 }
 
 if (elements.closeConfig) {
   elements.closeConfig.addEventListener("click", () => {
-    elements.configPanel.classList.add("hidden");
+    history.back();
+  });
+}
+
+if (elements.closeInvite) {
+  elements.closeInvite.addEventListener("click", () => {
+    history.back();
+  });
+}
+
+if (elements.inviteOverlay) {
+  elements.inviteOverlay.addEventListener("click", (event) => {
+    if (event.target === elements.inviteOverlay) {
+      history.back();
+    }
   });
 }
 
@@ -352,38 +354,6 @@ if (elements.inviteRefresh) {
       alert("통계를 불러오는 데 실패했습니다: " + err.message);
     } finally {
       setLoading(false);
-    }
-  });
-}
-
-if (elements.closeAdmin) {
-  elements.closeAdmin.addEventListener("click", () => {
-    elements.adminOverlay.classList.add("hidden");
-    document.body.style.overflow = "";
-  });
-}
-
-if (elements.adminOverlay) {
-  elements.adminOverlay.addEventListener("click", (event) => {
-    if (event.target === elements.adminOverlay) {
-      elements.adminOverlay.classList.add("hidden");
-      document.body.style.overflow = "";
-    }
-  });
-}
-
-if (elements.closeCompletion) {
-  elements.closeCompletion.addEventListener("click", () => {
-    elements.completionOverlay.classList.add("hidden");
-    document.body.style.overflow = "";
-  });
-}
-
-if (elements.completionOverlay) {
-  elements.completionOverlay.addEventListener("click", (event) => {
-    if (event.target === elements.completionOverlay) {
-      elements.completionOverlay.classList.add("hidden");
-      document.body.style.overflow = "";
     }
   });
 }
@@ -1065,7 +1035,7 @@ if (elements.carAssignAssignCards) {
 
 if (elements.closeCarSelect && elements.carSelectOverlay) {
   elements.closeCarSelect.addEventListener("click", () => {
-    elements.carSelectOverlay.classList.add("hidden");
+    history.back();
   });
 }
 
