@@ -220,12 +220,7 @@ window.addEventListener("popstate", (event) => {
       // We moved back TO the main screen (shouldn't happen if we started at main)
       return;
     }
-    if (confirm("프로그램을 종료하시겠습니까?")) {
-      // Exit - history already moved back.
-    } else {
-      // Stay - push state back.
-      window.history.pushState({ page: "main" }, "");
-    }
+    // Allow the browser to move back in history (exit the app or go back to previous site).
   }
 });
 
