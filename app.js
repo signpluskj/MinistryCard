@@ -3120,15 +3120,22 @@ const normalizeVisitDateText = (value) => {
   return `${yy}/${mm}/${dd}`;
 };
 
-const areaCompletionStatus = (cards) =>
-  cards.every(
-    (card) =>
-      Boolean(card["최근방문일"]) ||
+// startDate: 봉사 시작날짜(Date 객체 또는 null). 진행중일 때는 시작날짜 이후 방문만 완료로 인정
+const areaCompletionStatus = (cards, startDate) =>
+  cards.every((card) => {
+    if (
       isTrueValue(card["재방"]) ||
       isTrueValue(card["연구"]) ||
       isTrueValue(card["6개월"]) ||
       isTrueValue(card["방문금지"])
-  );
+    ) return true;
+    if (!card["최근방문일"]) return false;
+    if (startDate) {
+      const rv = parseVisitDate(card["최근방문일"]);
+      return rv && rv >= startDate;
+    }
+    return true;
+  });
 
 const getFirstInProgressArea = () => {
   const grouped = groupCardsByArea();
@@ -3241,10 +3248,15 @@ const renderAreas = () => {
       const metaRow = document.createElement("div");
       metaRow.className = "area-meta-row";
       const cardsInArea = grouped[areaId];
-      const isComplete = areaCompletionStatus(cardsInArea);
       const hasStart = Boolean(startText);
       const hasDone = Boolean(doneText);
       const inProgress = hasStart && !hasDone;
+      // 진행중인 구역은 시작날짜 이후에 방문한 카드만 완료로 인정
+      const areaStartDateForCheck =
+        inProgress && areaInfo && areaInfo["시작날짜"]
+          ? parseVisitDate(areaInfo["시작날짜"])
+          : null;
+      const isComplete = areaCompletionStatus(cardsInArea, areaStartDateForCheck);
       const areaCompleteDate =
         areaInfo && areaInfo["완료날짜"]
           ? parseVisitDate(areaInfo["완료날짜"])

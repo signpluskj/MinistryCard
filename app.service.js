@@ -510,19 +510,31 @@ const saveVisit = async (event) => {
 
     if (areaCardsError) throw areaCardsError;
 
+    // 구역 정보를 먼저 가져와서 시작날짜를 완료 판단에 활용
+    const { data: areaRow, error: areaRowError } = await supabaseClient
+      .from("areas")
+      .select("*")
+      .eq("area_id", areaId)
+      .single();
+
+    const areaStartDate = (!areaRowError && areaRow && areaRow.start_date)
+      ? parseVisitDate(areaRow.start_date)
+      : null;
+
+    // 완료 판단: 시작날짜 이후에 방문한 카드만 '방문 완료'로 인정
+    // (이전 회차의 방문 기록이 있어도 현재 회차 방문으로 오인하지 않도록)
     const isComplete = areaCards.every((c) => {
       if (c.revisit || c.study || c.six_months || c.banned) return true;
-      return !!c.recent_visit_date;
+      if (!c.recent_visit_date) return false;
+      if (areaStartDate) {
+        const rv = parseVisitDate(c.recent_visit_date);
+        return rv && rv >= areaStartDate;
+      }
+      return true;
     });
 
     let completeResult = false;
     if (isComplete) {
-      const { data: areaRow, error: areaRowError } = await supabaseClient
-        .from("areas")
-        .select("*")
-        .eq("area_id", areaId)
-        .single();
-
       // Ensure we save completion if not already done, even if start_date is missing
       if (!areaRowError && !areaRow.end_date) {
         const completeDate = visitDate || todayISO();
