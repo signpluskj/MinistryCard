@@ -258,125 +258,25 @@ if (elements.inviteOverlay) {
 
 
 if (elements.inviteStart) {
-  elements.inviteStart.addEventListener("click", async () => {
-    setLoading(true, "초대장 배부를 시작하는 중...");
-    try {
-      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
-
-      const { data, error } = await supabaseClient
-        .from("invite_campaign")
-        .insert({
-          status: "active",
-          start_date: todayISO()
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      state.inviteCampaign = {
-        id: data.id,
-        active: true,
-        startDate: data.start_date,
-        memo: data.memo
-      };
-      state.inviteStats = null;
-      renderInviteCampaignOverlay();
-    } catch (err) {
-      console.error(err);
-      alert("초대장 배부 시작에 실패했습니다: " + err.message);
-    } finally {
-      setLoading(false);
+  elements.inviteStart.addEventListener("click", () => {
+    if (typeof openInviteStartModal === "function") {
+      openInviteStartModal();
     }
   });
 }
 
 if (elements.inviteStop) {
-  elements.inviteStop.addEventListener("click", async () => {
-    setLoading(true, "초대장 배부를 종료하는 중...");
-    try {
-      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
-
-      const { data, error } = await supabaseClient
-        .from("invite_campaign")
-        .update({
-          status: "finished",
-          end_date: todayISO()
-        })
-        .eq("status", "active")
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      state.inviteCampaign = {
-        id: data.id,
-        active: false,
-        startDate: data.start_date,
-        endDate: data.end_date,
-        memo: data.memo
-      };
-      renderInviteCampaignOverlay();
-    } catch (err) {
-      console.error(err);
-      alert("초대장 배부 종료에 실패했습니다: " + err.message);
-    } finally {
-      setLoading(false);
+  elements.inviteStop.addEventListener("click", () => {
+    if (typeof handleStopInviteCampaign === "function") {
+      handleStopInviteCampaign();
     }
   });
 }
 
 if (elements.inviteRefresh) {
-  elements.inviteRefresh.addEventListener("click", async () => {
-    setLoading(true, "초대장 배부 통계를 불러오는 중...");
-    try {
-      if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
-
-      if (!state.inviteCampaign) {
-        alert("진행 중이거나 종료된 캠페인이 없습니다.");
-        return;
-      }
-
-      const start = state.inviteCampaign.startDate;
-      const end = state.inviteCampaign.endDate || todayISO();
-
-      const { data: visits, error } = await supabaseClient
-        .from("visits")
-        .select("*")
-        .gte("visit_date", start)
-        .lte("visit_date", end)
-        .eq("result", "초대장");
-
-      if (error) throw error;
-
-      const totalVisits = (visits || []).length;
-      const uniqueCards = new Set((visits || []).map(v => `${v.area_id}-${v.card_number}`)).size;
-
-      const byAreaMap = {};
-      (visits || []).forEach(v => {
-        if (!byAreaMap[v.area_id]) byAreaMap[v.area_id] = { areaId: v.area_id, cardCount: 0, visitCount: 0, cards: new Set() };
-        byAreaMap[v.area_id].visitCount++;
-        byAreaMap[v.area_id].cards.add(v.card_number);
-      });
-
-      const areaList = Object.values(byAreaMap).map(a => ({
-        areaId: a.areaId,
-        visitCount: a.visitCount,
-        cardCount: a.cards.size
-      }));
-
-      state.inviteStats = {
-        totalVisits,
-        totalCards: uniqueCards,
-        byArea: areaList
-      };
-
-      renderInviteCampaignOverlay();
-    } catch (err) {
-      console.error(err);
-      alert("통계를 불러오는 데 실패했습니다: " + err.message);
-    } finally {
-      setLoading(false);
+  elements.inviteRefresh.addEventListener("click", () => {
+    if (typeof handleRefreshInviteCampaign === "function") {
+      handleRefreshInviteCampaign();
     }
   });
 }

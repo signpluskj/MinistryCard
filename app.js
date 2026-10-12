@@ -3792,6 +3792,7 @@ const groupCardsByArea = () => {
   });
   return byArea;
 };
+window.groupCardsByArea = groupCardsByArea;
 
 const normalizeVisitDateText = (value) => {
   if (!value) {

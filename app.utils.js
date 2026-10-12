@@ -1,3 +1,16 @@
+var escapeHtml = (str) => {
+  if (str == null) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+};
+if (typeof window !== "undefined") {
+  window.escapeHtml = escapeHtml;
+}
+
 const todayISO = () => {
   const d = new Date();
   const y = d.getFullYear();
@@ -249,4 +262,19 @@ const isLeader = () =>
   (typeof state !== "undefined" &&
     state.user &&
     String(state.user.role || "").trim() === "인도자");
+
+if (typeof window !== "undefined") {
+  window.todayISO = todayISO;
+  window.parseVisitDate = parseVisitDate;
+  window.formatDate = formatDate;
+  window.toISODate = toISODate;
+  window.isTrueValue = isTrueValue;
+  window.compareAreaIds = compareAreaIds;
+  window.compareCardNumbers = compareCardNumbers;
+  window.escapeHtml = escapeHtml;
+  window.escapeAttr = escapeAttr;
+  window.isSuperAdmin = isSuperAdmin;
+  window.isAdmin = isAdmin;
+  window.isLeader = isLeader;
+}
 
