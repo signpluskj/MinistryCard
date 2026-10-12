@@ -2032,9 +2032,8 @@ const loadConfig = async () => {
       console.warn("Failed to load site_config in loadConfig:", e);
     }
   }
-  // 설정을 불러온 후 설정창을 숨김 (자동 로그인 시 잔상 제거)
-  if (elements.configPanel && !elements.configPanel.classList.contains("hidden")) {
-    history.back();
+  if (elements.configPanel) {
+    elements.configPanel.classList.add("hidden");
   }
 };
 
@@ -2125,6 +2124,24 @@ const refreshAll = async () => {
   }
 };
 
+const getVolunteerWeekdayMemo = (weekday, slotName) => {
+  if (!weekday) return "";
+  const weeks = state.volunteerWeeks || [];
+  for (const w of weeks) {
+    for (const d of (w.days || [])) {
+      if (d.weekday === weekday) {
+        const val = slotName === "오후"
+          ? (d.fixedMemoPM || "")
+          : (d.fixedMemoAM || d.fixedMemo || "");
+        if (String(val).trim()) {
+          return String(val).trim();
+        }
+      }
+    }
+  }
+  return "";
+};
+
 const buildVolunteerDayList = () => {
   const weeks = state.volunteerWeeks || [];
   const days = [];
@@ -2132,6 +2149,7 @@ const buildVolunteerDayList = () => {
     const weekStartText = week.weekStartText || "";
     const weekStartISO = week.weekStartISO || "";
     (week.days || []).forEach((day) => {
+      const legacyFixed = day.fixedMemo || "";
       days.push({
         weekStartText,
         weekStartISO,
@@ -2144,9 +2162,9 @@ const buildVolunteerDayList = () => {
         slotPMEnabled: day.slotPMEnabled,
         fixedMemo: day.fixedMemo || "",
         extraMemo: day.extraMemo || "",
-        fixedMemoAM: day.fixedMemoAM || "",
-        fixedMemoPM: day.fixedMemoPM || "",
-        extraMemoAM: day.extraMemoAM || "",
+        fixedMemoAM: day.fixedMemoAM || legacyFixed || getVolunteerWeekdayMemo(day.weekday, "오전"),
+        fixedMemoPM: day.fixedMemoPM || getVolunteerWeekdayMemo(day.weekday, "오후"),
+        extraMemoAM: day.extraMemoAM || day.extraMemo || "",
         extraMemoPM: day.extraMemoPM || ""
       });
     });
@@ -2468,10 +2486,14 @@ const renderVolunteerOverlay = () => {
       const daySlots = getAvailableVolunteerSlots(selectedDay);
       daySlots.forEach((slotName) => {
         const fixedMemoText = String(
-          slotName === "오후" ? selectedDay.fixedMemoPM || selectedDay.fixedMemo || "" : selectedDay.fixedMemoAM || selectedDay.fixedMemo || ""
+          slotName === "오후"
+            ? (selectedDay.fixedMemoPM || getVolunteerWeekdayMemo(selectedDay.weekday, "오후") || "")
+            : (selectedDay.fixedMemoAM || selectedDay.fixedMemo || getVolunteerWeekdayMemo(selectedDay.weekday, "오전") || "")
         ).trim();
         const extraMemoText = String(
-          slotName === "오후" ? selectedDay.extraMemoPM || selectedDay.extraMemo || "" : selectedDay.extraMemoAM || selectedDay.extraMemo || ""
+          slotName === "오후"
+            ? (selectedDay.extraMemoPM || "")
+            : (selectedDay.extraMemoAM || selectedDay.extraMemo || "")
         ).trim();
         const memoParts = [];
         if (fixedMemoText) memoParts.push(fixedMemoText);
@@ -3036,7 +3058,9 @@ const renderVolunteerOverlay = () => {
               weekday: weekday,
               slotAMEnabled: config.am,
               slotPMEnabled: config.pm,
-              participantEntries: []
+              participantEntries: [],
+              fixedMemoAM: getVolunteerWeekdayMemo(weekday, "오전"),
+              fixedMemoPM: getVolunteerWeekdayMemo(weekday, "오후")
             });
           }
         }
@@ -3055,7 +3079,9 @@ const renderVolunteerOverlay = () => {
               return { 
                 ...oldDay, 
                 slotAMEnabled: newDay.slotAMEnabled, 
-                slotPMEnabled: newDay.slotPMEnabled 
+                slotPMEnabled: newDay.slotPMEnabled,
+                fixedMemoAM: oldDay.fixedMemoAM || newDay.fixedMemoAM || "",
+                fixedMemoPM: oldDay.fixedMemoPM || newDay.fixedMemoPM || ""
               };
             }
             return newDay;
@@ -3080,6 +3106,7 @@ const renderVolunteerOverlay = () => {
     row3.appendChild(saveBtn);
     adminBox.appendChild(row3);
     if (selectedDay && selectedDay.isoDate) {
+      const dateText = formatVolunteerDateText(selectedDay.dateText || selectedDay.isoDate);
       const memoSlots = getAvailableVolunteerSlots(selectedDay);
       memoSlots.forEach((slotName) => {
         const memoBox = document.createElement("div");
@@ -3088,9 +3115,11 @@ const renderVolunteerOverlay = () => {
         memoRow.className = "volunteer-admin-row";
         const slotLabel = document.createElement("span");
         slotLabel.className = "volunteer-admin-label";
-        slotLabel.textContent = `${slotName} 메모`;
+        slotLabel.style.fontWeight = "bold";
+        slotLabel.textContent = `${dateText} (${selectedDay.weekday}) ${slotName} 메모`;
         memoRow.appendChild(slotLabel);
         memoBox.appendChild(memoRow);
+
         const fixedRow = document.createElement("div");
         fixedRow.className = "volunteer-admin-row";
         const fixedLabel = document.createElement("span");
@@ -3100,9 +3129,18 @@ const renderVolunteerOverlay = () => {
         const fixedMemoInput = document.createElement("input");
         fixedMemoInput.type = "text";
         fixedMemoInput.placeholder = `${selectedDay.weekday || ""} 공통 메모`;
-        fixedMemoInput.value = String(slotName === "오후" ? selectedDay.fixedMemoPM || "" : selectedDay.fixedMemoAM || "");
+        const currentFixed = slotName === "오후"
+          ? (selectedDay.fixedMemoPM || getVolunteerWeekdayMemo(selectedDay.weekday, "오후") || "")
+          : (selectedDay.fixedMemoAM || selectedDay.fixedMemo || getVolunteerWeekdayMemo(selectedDay.weekday, "오전") || "");
+        fixedMemoInput.value = String(currentFixed);
         fixedRow.appendChild(fixedMemoInput);
         memoBox.appendChild(fixedRow);
+
+        const fixedHelp = document.createElement("div");
+        fixedHelp.style.cssText = "font-size: 0.78rem; color: #888; margin: -4px 0 8px 76px;";
+        fixedHelp.textContent = `💡 매주 ${selectedDay.weekday}요일 ${slotName} 봉사에 항상 노출되는 공통 메시지입니다.`;
+        memoBox.appendChild(fixedHelp);
+
         const extraRow = document.createElement("div");
         extraRow.className = "volunteer-admin-row";
         const extraLabel = document.createElement("span");
@@ -3112,9 +3150,18 @@ const renderVolunteerOverlay = () => {
         const extraMemoInput = document.createElement("input");
         extraMemoInput.type = "text";
         extraMemoInput.placeholder = `${slotName} 추가 메모`;
-        extraMemoInput.value = String(slotName === "오후" ? selectedDay.extraMemoPM || "" : selectedDay.extraMemoAM || "");
+        const currentExtra = slotName === "오후"
+          ? (selectedDay.extraMemoPM || "")
+          : (selectedDay.extraMemoAM || selectedDay.extraMemo || "");
+        extraMemoInput.value = String(currentExtra);
         extraRow.appendChild(extraMemoInput);
         memoBox.appendChild(extraRow);
+
+        const extraHelp = document.createElement("div");
+        extraHelp.style.cssText = "font-size: 0.78rem; color: #888; margin: -4px 0 8px 76px;";
+        extraHelp.textContent = `💡 ${dateText}(${selectedDay.weekday}) ${slotName}에만 노출되는 특정 날짜 전용 메시지입니다.`;
+        memoBox.appendChild(extraHelp);
+
         const actionRow = document.createElement("div");
         actionRow.className = "volunteer-admin-row volunteer-admin-row-center";
         const memoSaveBtn = document.createElement("button");
@@ -3123,44 +3170,24 @@ const renderVolunteerOverlay = () => {
         memoSaveBtn.addEventListener("click", async () => {
           setLoading(true, "메모를 저장하는 중...");
           try {
-            const weekStart = selectedDay.weekStartText || selectedDay.weekStartISO;
             const weekday = selectedDay.weekday;
-            
-            // 1. Update weekday memo (fixedMemo) for ALL weeks
-            const batchRes = await batchUpdateVolunteerWeekdayMemos(
-              weekday, 
-              slotName, 
-              fixedMemoInput.value || ""
-            );
-            if (!batchRes.success) throw new Error(batchRes.message);
+            const targetIsoDate = selectedDay.isoDate;
+            const fixedVal = fixedMemoInput.value.trim();
+            const extraVal = extraMemoInput.value.trim();
 
-            // 2. Update date memo (extraMemo) for current week
-            const { data: weekRow, error: fetchError } = await supabaseClient
-              .from("volunteer_weeks")
-              .select("data")
-              .eq("week_start", weekStart)
-              .single();
-              
-            if (fetchError) throw fetchError;
-            
-            const updatedData = { ...weekRow.data };
-            (updatedData.days || []).forEach(d => {
-              if (d.isoDate === selectedDay.isoDate) {
-                if (slotName === "오후") {
-                  d.extraMemoPM = extraMemoInput.value || "";
-                } else {
-                  d.extraMemoAM = extraMemoInput.value || "";
-                }
-              }
-            });
-            
-            const saveRes = await saveVolunteerWeekToSupabase(weekStart, updatedData);
+            const saveRes = await saveVolunteerMemos(
+              weekday,
+              slotName,
+              fixedVal,
+              targetIsoDate,
+              extraVal
+            );
             if (!saveRes.success) throw new Error(saveRes.message);
-            
+
             await loadVolunteerConfig();
             ensureVolunteerSelection();
             renderVolunteerOverlay();
-            setStatus("메모가 저장되었습니다.");
+            setStatus(`${dateText} (${weekday}) ${slotName} 메모가 저장되었습니다.`);
           } catch (err) {
             console.error("Set volunteer memo error:", err);
             alert("메모 저장에 실패했습니다: " + err.message);
@@ -3196,6 +3223,15 @@ const renderVolunteerOverlay = () => {
       });
       sortedDays.forEach((d) => {
         const tr = document.createElement("tr");
+        if (d.isoDate === (selectedDay ? selectedDay.isoDate : "")) {
+          tr.style.backgroundColor = "rgba(43, 114, 186, 0.15)";
+        }
+        tr.style.cursor = "pointer";
+        tr.title = `${d.weekday}요일 메모 및 신청자 확인`;
+        tr.addEventListener("click", () => {
+          state.selectedVolunteerDate = d.isoDate || "";
+          renderVolunteerOverlay();
+        });
         const tdDate = document.createElement("td");
         tdDate.textContent = formatVolunteerDateText(d.dateText || d.isoDate);
         tr.appendChild(tdDate);

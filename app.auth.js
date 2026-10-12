@@ -4,15 +4,18 @@ const updateMenuVisibility = () => {
   const isLdr = isLeader();
   const isSuper = isSuperAdmin();
 
-  document.querySelectorAll(".admin-only").forEach((el) => {
+  const menu = elements.sideMenu || document.querySelector(".side-menu");
+  if (!menu) return;
+
+  menu.querySelectorAll(".admin-only").forEach((el) => {
     el.classList.toggle("hidden", !isAdm);
   });
 
-  document.querySelectorAll(".leader-only").forEach((el) => {
+  menu.querySelectorAll(".leader-only").forEach((el) => {
     el.classList.toggle("hidden", !isLdr);
   });
 
-  document.querySelectorAll(".super-admin-only").forEach((el) => {
+  menu.querySelectorAll(".super-admin-only").forEach((el) => {
     el.classList.toggle("hidden", !isSuper);
   });
 };

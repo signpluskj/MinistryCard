@@ -210,7 +210,7 @@ const deleteSelectedVolunteerWeeksFromSupabase = async (weekStarts) => {
   }
 };
 
-const batchUpdateVolunteerWeekdayMemos = async (weekday, slotName, memo) => {
+const saveVolunteerMemos = async (weekday, slotName, fixedMemo, targetIsoDate, extraMemo) => {
   if (!supabaseClient) return { success: false, message: "Supabase client not initialized" };
   try {
     const { data: weeks, error: fetchError } = await supabaseClient
@@ -219,19 +219,37 @@ const batchUpdateVolunteerWeekdayMemos = async (weekday, slotName, memo) => {
 
     if (fetchError) throw fetchError;
 
+    const targetFixed = fixedMemo !== undefined ? String(fixedMemo) : null;
+    const targetExtra = extraMemo !== undefined ? String(extraMemo) : null;
+
     const updates = (weeks || []).map(row => {
       const weekData = { ...row.data };
       let changed = false;
       (weekData.days || []).forEach(d => {
-        if (d.weekday === weekday) {
+        // 1. 요일 메모: 지정된 봉사요일(weekday)에 해당하는 모든 주간의 해당 요일에 일괄 반영
+        if (targetFixed !== null && d.weekday === weekday) {
           if (slotName === "오후") {
-            if (d.fixedMemoPM !== memo) {
-              d.fixedMemoPM = memo;
+            if ((d.fixedMemoPM || "") !== targetFixed) {
+              d.fixedMemoPM = targetFixed;
               changed = true;
             }
           } else {
-            if (d.fixedMemoAM !== memo) {
-              d.fixedMemoAM = memo;
+            if ((d.fixedMemoAM || "") !== targetFixed) {
+              d.fixedMemoAM = targetFixed;
+              changed = true;
+            }
+          }
+        }
+        // 2. 날짜 메모: 오직 지정된 특정 날짜(targetIsoDate)에만 단독 반영 (다른 날짜에는 절대 반영되지 않음)
+        if (targetExtra !== null && d.isoDate === targetIsoDate) {
+          if (slotName === "오후") {
+            if ((d.extraMemoPM || "") !== targetExtra) {
+              d.extraMemoPM = targetExtra;
+              changed = true;
+            }
+          } else {
+            if ((d.extraMemoAM || "") !== targetExtra) {
+              d.extraMemoAM = targetExtra;
               changed = true;
             }
           }
@@ -250,9 +268,13 @@ const batchUpdateVolunteerWeekdayMemos = async (weekday, slotName, memo) => {
 
     return { success: true };
   } catch (err) {
-    console.error("Failed to batch update volunteer weekday memos:", err);
+    console.error("Failed to save volunteer memos:", err);
     return { success: false, message: err.message };
   }
+};
+
+const batchUpdateVolunteerWeekdayMemos = async (weekday, slotName, memo) => {
+  return await saveVolunteerMemos(weekday, slotName, memo, null, null);
 };
 
 const restoreDeletedCardInSupabase = async (areaId, cardNumber) => {
