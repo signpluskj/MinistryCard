@@ -224,3 +224,29 @@ const toIsoDate = (dateStr) => {
   }
   return null;
 };
+
+const escapeAttr = (str) =>
+  String(str == null ? "" : str)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+const isSuperAdmin = () =>
+  typeof state !== "undefined" &&
+  (state.isSuperAdmin === true ||
+    (state.user && String(state.user.role || "").trim() === "최고관리자"));
+
+const isAdmin = () =>
+  isSuperAdmin() ||
+  (typeof state !== "undefined" &&
+    state.user &&
+    String(state.user.role || "").trim() === "관리자");
+
+const isLeader = () =>
+  isAdmin() ||
+  (typeof state !== "undefined" &&
+    state.user &&
+    String(state.user.role || "").trim() === "인도자");
+

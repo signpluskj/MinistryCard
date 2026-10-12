@@ -54,8 +54,7 @@ const renderCards = () => {
   const isKslCurrentArea =
     currentAreaId && isKslArea(currentAreaId) ? true : false;
   const canAssignFromCardsPanel =
-    state.user &&
-    (state.user.role === "관리자" || state.user.role === "인도자") &&
+    isLeader() &&
     currentAreaId &&
     (isKslCurrentArea || isInProgress);
   let cards = rawCards.slice();
@@ -349,7 +348,7 @@ const renderCards = () => {
       cardEl.appendChild(info);
     }
     cardEl.appendChild(nav);
-    if (state.user && state.user.role === "관리자") {
+    if (isAdmin()) {
       let swipeStartX = null;
       let swipeStartY = null;
       let swipeStartTime = 0;
@@ -477,10 +476,8 @@ const renderCards = () => {
           item.addEventListener("click", (event) => {
             event.stopPropagation();
             const currentUser = state.user;
-            const isLeader =
-              currentUser &&
-              (currentUser.role === "관리자" || currentUser.role === "인도자");
-            if (!isLeader) {
+            const isLdr = isLeader();
+            if (!isLdr) {
               const visitISO = toISODate(getVisitDateValue(row));
               if (visitISO !== todayISO()) {
                 alert("오늘 날짜의 방문만 수정할 수 있습니다.");
@@ -528,8 +525,7 @@ const renderCards = () => {
             };
 
             if (elements.visitDelete) {
-              const isAdmin = state.user && (state.user.role === "관리자" || state.user.role === "인도자");
-              if (isAdmin) {
+              if (isLeader()) {
                 elements.visitDelete.classList.remove("hidden");
               } else {
                 elements.visitDelete.classList.add("hidden");

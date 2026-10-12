@@ -67,20 +67,24 @@ if (elements.sideMenu) {
     const key = button.dataset.menu;
     if (!key) return;
 
-    const isAdmin = state.user && state.user.role === "관리자";
-    const isLeader = state.user && state.user.role === "인도자";
+    const isAdm = isAdmin();
+    const isLdr = isLeader();
 
-    if ((["admin-cards", "admin-ev", "admin-banned", "admin-deleted", "invite-campaign"].includes(key)) && !isAdmin) {
+    if ((["admin-cards", "admin-ev", "admin-banned", "admin-deleted", "invite-campaign", "volunteer-report"].includes(key)) && !isAdm) {
       alert("관리자만 사용할 수 있습니다.");
       return;
     }
 
-    if (key === "car-assign" && !isAdmin && !isLeader) {
+    if (key === "car-assign" && !isAdm && !isLdr) {
       alert("관리자 또는 인도자만 사용할 수 있습니다.");
       return;
     }
-    if (key === "visits" && !isAdmin) {
+    if (key === "visits" && !isAdm) {
       alert("관리자만 사용할 수 있습니다.");
+      return;
+    }
+    if (key === "config" && !isSuperAdmin()) {
+      alert("최고관리자만 연결 설정에 접근할 수 있습니다.");
       return;
     }
 
@@ -102,6 +106,11 @@ if (elements.sideMenu) {
       }
     } else if (key === "volunteer") {
       openVolunteerOverlay();
+    } else if (key === "volunteer-report") {
+      if (elements.volunteerReportOverlay) {
+        showOverlay(elements.volunteerReportOverlay);
+        renderVolunteerReportOverlay();
+      }
     } else if (["admin-cards", "admin-ev", "admin-banned", "admin-deleted"].includes(key)) {
       if (elements.adminOverlay) {
         showOverlay(elements.adminOverlay);
@@ -120,10 +129,10 @@ if (elements.sideMenu) {
         renderInviteCampaignOverlay();
       }
     } else if (key === "config") {
-      if (state.isSuperAdmin) {
+      if (isSuperAdmin()) {
         showOverlay(elements.configPanel);
       } else {
-        alert("최고관리자만 설정에 접근할 수 있습니다.");
+        alert("최고관리자만 연결 설정에 접근할 수 있습니다.");
       }
     }
   });
@@ -166,6 +175,20 @@ if (elements.closeVolunteer) {
 if (elements.volunteerOverlay) {
   elements.volunteerOverlay.addEventListener("click", (event) => {
     if (event.target === elements.volunteerOverlay) {
+      history.back();
+    }
+  });
+}
+
+if (elements.closeVolunteerReport) {
+  elements.closeVolunteerReport.addEventListener("click", () => {
+    history.back();
+  });
+}
+
+if (elements.volunteerReportOverlay) {
+  elements.volunteerReportOverlay.addEventListener("click", (event) => {
+    if (event.target === elements.volunteerReportOverlay) {
       history.back();
     }
   });
@@ -441,25 +464,45 @@ if (elements.adminCarEdit) {
 
 if (elements.evangelistList) {
   elements.evangelistList.addEventListener("click", async (event) => {
+    // 탭 필터 버튼 클릭 처리
+    const filterBtn = event.target.closest("button[data-ev-filter]");
+    if (filterBtn) {
+      event.stopPropagation();
+      state.adminEvRoleFilter = filterBtn.dataset.evFilter || "all";
+      renderAdminEvangelists();
+      return;
+    }
+
     const button = event.target.closest("button[data-action]");
     if (!button) return;
     event.stopPropagation();
     const action = button.dataset.action;
-    const rowEl = button.closest("tr");
-    if (!rowEl) {
-      return;
-    }
-    const isNew = rowEl.dataset.new === "true";
-    const getInput = (field) =>
-      rowEl.querySelector('input[data-field="' + field + '"]') ||
-      rowEl.querySelector('select[data-field="' + field + '"]');
+
+    // 신규 등록
     if (action === "create-ev") {
+      const container =
+        button.closest(".admin-ev-quick-add-card") || button.closest("tr");
+      if (!container) return;
+      const getInput = (field) =>
+        container.querySelector('input[data-field="' + field + '"]') ||
+        container.querySelector('select[data-field="' + field + '"]');
+
       const nameInput = getInput("name");
       const name = nameInput ? nameInput.value.trim() : "";
       if (!name) {
         alert("이름을 입력해 주세요.");
+        if (nameInput) nameInput.focus();
         return;
       }
+
+      const exists = (state.data.evangelists || []).some(
+        (e) => (e["이름"] || "").trim() === name
+      );
+      if (exists) {
+        alert(`'${name}' 이름은 이미 등록되어 있습니다.`);
+        return;
+      }
+
       const genderInput = getInput("gender");
       const deafInput = getInput("deaf");
       const roleInput = getInput("role");
@@ -467,18 +510,31 @@ if (elements.evangelistList) {
       const capInput = getInput("capacity");
       const spouseInput = getInput("spouse");
       const pwInput = getInput("password");
+
       const payload = {
         name,
         gender: genderInput ? genderInput.value.trim() : "",
         deaf: deafInput ? !!deafInput.checked : false,
-        role: roleInput ? roleInput.value.trim() : "",
-        driver: driverInput ? driverInput.checked : false,
-        capacity: capInput && capInput.value ? String(Number(capInput.value) || 0) : "",
+        role: roleInput ? roleInput.value.trim() : "전도인",
+        driver: driverInput ? !!driverInput.checked : false,
+        capacity:
+          capInput && capInput.value ? Number(capInput.value) || 0 : 0,
         spouse: spouseInput ? spouseInput.value.trim() : "",
-        password: pwInput ? pwInput.value : ""
+        password: pwInput ? pwInput.value.trim() : ""
       };
+
+      const isSuper = isSuperAdmin();
+      if (payload.role === "최고관리자" && !isSuper) {
+        alert("최고관리자 권한은 최고관리자만 설정할 수 있습니다.");
+        return;
+      }
+      if (!isSuper) {
+        payload.password = "";
+      }
+
       try {
-        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+        if (!supabaseClient)
+          throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
 
         const dbData = {
           name: payload.name,
@@ -487,49 +543,103 @@ if (elements.evangelistList) {
           role: payload.role || "전도인",
           driver: !!payload.driver,
           capacity: payload.capacity ? Number(payload.capacity) : 0,
-          spouse: payload.spouse
+          spouse: payload.spouse,
+          password: payload.password
         };
-        if (payload.password) dbData.password = payload.password;
 
         const { error } = await supabaseClient
           .from("evangelists")
-          .upsert(dbData);
+          .insert(dbData);
 
         if (error) throw error;
 
         await loadData();
         renderAdminPanel();
-        setStatus("전도인이 추가되었습니다.");
+        setStatus(`'${name}' (${dbData.role}) 님이 등록되었습니다.`);
       } catch (e) {
         console.error(e);
-        alert("전도인 저장 중 오류가 발생했습니다: " + e.message);
+        alert("등록 중 오류가 발생했습니다: " + e.message);
       }
       return;
     }
-    const name = rowEl.dataset.name || button.dataset.name || "";
-    if (!name) {
+
+    const rowEl = button.closest("tr");
+    if (!rowEl) return;
+    const getInput = (field) =>
+      rowEl.querySelector('input[data-field="' + field + '"]') ||
+      rowEl.querySelector('select[data-field="' + field + '"]');
+
+    const originalName =
+      rowEl.dataset.originalName ||
+      rowEl.dataset.name ||
+      button.dataset.name ||
+      "";
+    if (!originalName) {
       alert("이름 정보를 찾을 수 없습니다.");
       return;
     }
+
     if (action === "save-ev") {
+      const isSuper = isSuperAdmin();
+      const originalEv = (state.data.evangelists || []).find(
+        (e) => (e["이름"] || "").trim() === originalName
+      );
+      const isTargetSuper =
+        originalEv && (originalEv["역할"] || "").trim() === "최고관리자";
+
+      if (isTargetSuper && !isSuper) {
+        alert("최고관리자 계정은 최고관리자만 수정할 수 있습니다.");
+        return;
+      }
+
+      const nameInput = getInput("name");
+      const newName = nameInput ? nameInput.value.trim() : originalName;
+      if (!newName) {
+        alert("이름을 비워둘 수 없습니다.");
+        if (nameInput) nameInput.focus();
+        return;
+      }
+
+      if (newName !== originalName) {
+        const exists = (state.data.evangelists || []).some(
+          (e) =>
+            (e["이름"] || "").trim() === newName &&
+            (e["이름"] || "").trim() !== originalName
+        );
+        if (exists) {
+          alert(`'${newName}' 이름은 이미 다른 사용자로 등록되어 있습니다.`);
+          return;
+        }
+      }
+
       const genderInput = getInput("gender");
       const roleInput = getInput("role");
       const driverInput = getInput("driver");
       const capInput = getInput("capacity");
       const spouseInput = getInput("spouse");
       const pwInput = getInput("password");
+      const deafInput = getInput("deaf");
+
       const payload = {
-        name,
+        name: newName,
         gender: genderInput ? genderInput.value.trim() : "",
-        deaf: getInput("deaf") ? !!getInput("deaf").checked : false,
-        role: roleInput ? roleInput.value.trim() : "",
-        driver: driverInput ? driverInput.checked : false,
-        capacity: capInput && capInput.value ? String(Number(capInput.value) || 0) : "",
+        deaf: deafInput ? !!deafInput.checked : false,
+        role: roleInput ? roleInput.value.trim() : "전도인",
+        driver: driverInput ? !!driverInput.checked : false,
+        capacity:
+          capInput && capInput.value ? Number(capInput.value) || 0 : 0,
         spouse: spouseInput ? spouseInput.value.trim() : "",
-        password: pwInput ? pwInput.value : ""
+        password: pwInput ? pwInput.value.trim() : ""
       };
+
+      if (payload.role === "최고관리자" && !isSuper) {
+        alert("최고관리자 권한은 최고관리자만 설정할 수 있습니다.");
+        return;
+      }
+
       try {
-        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+        if (!supabaseClient)
+          throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
 
         const dbData = {
           name: payload.name,
@@ -540,41 +650,95 @@ if (elements.evangelistList) {
           capacity: payload.capacity ? Number(payload.capacity) : 0,
           spouse: payload.spouse
         };
-        if (payload.password) dbData.password = payload.password;
+
+        // 비밀번호 관리 및 변경은 최고관리자만 가능
+        if (isSuper) {
+          dbData.password = payload.password;
+        } else {
+          // 비-최고관리자의 수정 시에는 기존 비밀번호 보존
+          dbData.password = (originalEv && originalEv["비밀번호"]) || "";
+        }
 
         const { error } = await supabaseClient
           .from("evangelists")
-          .upsert(dbData);
+          .update(dbData)
+          .eq("name", originalName);
 
         if (error) throw error;
 
+        // 현재 로그인된 본인 계정 정보가 수정된 경우 반영
+        if (state.user && state.user.name === originalName) {
+          state.user.name = newName;
+          state.user.role = payload.role;
+          if (payload.role === "최고관리자") {
+            state.isSuperAdmin = true;
+          }
+          if (elements.userInfo) {
+            elements.userInfo.textContent = `${state.user.name} (${state.user.role})`;
+          }
+          updateMenuVisibility();
+          try {
+            window.localStorage.setItem(
+              "mcUser",
+              JSON.stringify({
+                name: state.user.name,
+                role: state.user.role,
+                isSuper: state.isSuperAdmin
+              })
+            );
+          } catch (e) {}
+        }
+
         await loadData();
         renderAdminPanel();
-        setStatus("전도인 정보가 저장되었습니다.");
+        setStatus(`'${newName}' (${payload.role}) 정보가 수정되었습니다.`);
       } catch (e) {
         console.error(e);
-        alert("전도인 저장 중 오류가 발생했습니다: " + e.message);
+        alert("정보 저장 중 오류가 발생했습니다: " + e.message);
       }
     } else if (action === "delete-ev") {
-      if (!window.confirm(`${name} 전도인을 삭제하시겠습니까?`)) {
+      const isSuper = isSuperAdmin();
+
+      if (state.user && state.user.name === originalName) {
+        alert("현재 로그인된 본인 계정은 삭제할 수 없습니다.");
         return;
       }
+
+      const evObj = (state.data.evangelists || []).find(
+        (e) => (e["이름"] || "").trim() === originalName
+      );
+      const evRole = evObj ? evObj["역할"] || "전도인" : "전도인";
+
+      if (evRole === "최고관리자" && !isSuper) {
+        alert("최고관리자 계정은 최고관리자만 삭제할 수 있습니다.");
+        return;
+      }
+
+      if (
+        !window.confirm(
+          `'${originalName}' (${evRole}) 님을 삭제하시겠습니까?\n삭제 시 로그인 및 배정 명단에서 제외됩니다.`
+        )
+      ) {
+        return;
+      }
+
       try {
-        if (!supabaseClient) throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
+        if (!supabaseClient)
+          throw new Error("Supabase 클라이언트가 초기화되지 않았습니다.");
 
         const { error } = await supabaseClient
           .from("evangelists")
           .delete()
-          .eq("name", name);
+          .eq("name", originalName);
 
         if (error) throw error;
 
         await loadData();
         renderAdminPanel();
-        setStatus("전도인이 삭제되었습니다.");
+        setStatus(`'${originalName}' 님이 삭제되었습니다.`);
       } catch (e) {
         console.error(e);
-        alert("전도인 삭제 중 오류가 발생했습니다: " + e.message);
+        alert("인원 삭제 중 오류가 발생했습니다: " + e.message);
       }
     }
   });
@@ -1059,6 +1223,43 @@ elements.carAssignAdd.addEventListener("click", () => {
   state.carAssignments = cars;
   renderCarAssignPopup();
 });
+
+if (elements.carAssignSelected) {
+  // 차량에 배정된 인원을 클릭하고 '윗 공간'을 클릭하여 미배정으로 이동
+  elements.carAssignSelected.addEventListener("click", () => {
+    if (typeof carAssignTapSelection !== "undefined" && carAssignTapSelection && carAssignTapSelection.fromCarId) {
+      if (typeof unassignMember === "function") {
+        unassignMember(carAssignTapSelection.name, carAssignTapSelection.fromCarId);
+      }
+    }
+  });
+
+  // 드래그 앤 드롭으로 윗 공간에 올려 미배정 처리
+  elements.carAssignSelected.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    elements.carAssignSelected.classList.add("drag-over");
+  });
+
+  elements.carAssignSelected.addEventListener("dragleave", () => {
+    elements.carAssignSelected.classList.remove("drag-over");
+  });
+
+  elements.carAssignSelected.addEventListener("drop", (e) => {
+    e.preventDefault();
+    elements.carAssignSelected.classList.remove("drag-over");
+    try {
+      const raw = e.dataTransfer.getData("text/plain");
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data && data.name && data.fromCarId && typeof unassignMember === "function") {
+          unassignMember(data.name, data.fromCarId);
+        }
+      }
+    } catch (err) {
+      console.warn("Drop to unassign failed:", err);
+    }
+  });
+}
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

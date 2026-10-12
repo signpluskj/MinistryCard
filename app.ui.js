@@ -49,8 +49,7 @@ const renderVisitsView = () => {
           : doneText || startText || "";
       headerRow.appendChild(title);
 
-      const isAdmin = state.user && (state.user.role === "관리자" || state.user.role === "인도자");
-      if (isAdmin) {
+      if (isLeader()) {
         const actions = document.createElement("div");
         actions.className = "completion-item-actions";
         actions.style.display = "flex";
@@ -141,9 +140,7 @@ const selectCard = (card) => {
 };
 
 const updateVisitFlagButtons = () => {
-  const isAdmin =
-    state.user &&
-    (state.user.role === "관리자" || state.user.role === "인도자");
+  const isAdmin = isLeader();
   const card = state.selectedCard;
   const buttons = [
     elements.visitClearRevisit,

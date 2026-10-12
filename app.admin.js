@@ -70,8 +70,7 @@ const renderCompletionOverlayList = () => {
           textSpan.textContent = `${titleText}${leaderText}${memoText}`;
           entry.appendChild(textSpan);
 
-          const isAdmin = state.user && (state.user.role === "관리자" || state.user.role === "인도자");
-          if (isAdmin) {
+          if (isLeader()) {
             const actions = document.createElement("div");
             actions.className = "completion-item-actions";
             actions.style.display = "flex";
@@ -220,8 +219,7 @@ const renderAdminCompletions = () => {
     return;
   }
 
-  const userRole = state.user ? state.user.role : "";
-  const canEdit = userRole === "관리자" || state.isSuperAdmin === true;
+  const canEdit = isAdmin();
 
   completions.forEach((c) => {
     const div = document.createElement("div");
@@ -277,61 +275,306 @@ const renderAdminEvangelists = () => {
   const box = document.getElementById("admin-evangelist-list");
   if (!box) return;
   box.innerHTML = "";
-  const evangelists = [...(state.data.evangelists || [])].sort((a, b) =>
+
+  const isSuper = isSuperAdmin();
+
+  const allEvangelists = [...(state.data.evangelists || [])].sort((a, b) =>
     String(a["이름"] || "").localeCompare(String(b["이름"] || ""), "ko-KR")
   );
 
+  const totalCount = allEvangelists.length;
+  const superCount = allEvangelists.filter(
+    (e) => (e["역할"] || "").trim() === "최고관리자"
+  ).length;
+  const adminCount = allEvangelists.filter(
+    (e) => (e["역할"] || "").trim() === "관리자"
+  ).length;
+  const leaderCount = allEvangelists.filter(
+    (e) => (e["역할"] || "").trim() === "인도자"
+  ).length;
+  const memberCount = allEvangelists.filter((e) => {
+    const r = (e["역할"] || "").trim();
+    return r !== "최고관리자" && r !== "관리자" && r !== "인도자";
+  }).length;
+
+  const currentFilter = state.adminEvRoleFilter || "all";
+  const currentSearch = (state.adminEvSearch || "").trim().toLowerCase();
+
+  // 필터 적용
+  let filtered = allEvangelists;
+  if (currentFilter === "최고관리자") {
+    filtered = filtered.filter(
+      (e) => (e["역할"] || "").trim() === "최고관리자"
+    );
+  } else if (currentFilter === "관리자") {
+    filtered = filtered.filter((e) => (e["역할"] || "").trim() === "관리자");
+  } else if (currentFilter === "인도자") {
+    filtered = filtered.filter((e) => (e["역할"] || "").trim() === "인도자");
+  } else if (currentFilter === "전도인") {
+    filtered = filtered.filter((e) => {
+      const r = (e["역할"] || "").trim();
+      return r !== "최고관리자" && r !== "관리자" && r !== "인도자";
+    });
+  }
+
+  if (currentSearch) {
+    filtered = filtered.filter((e) => {
+      const name = String(e["이름"] || "").toLowerCase();
+      const spouse = String(e["부부"] || "").toLowerCase();
+      const role = String(e["역할"] || "").toLowerCase();
+      return (
+        name.includes(currentSearch) ||
+        spouse.includes(currentSearch) ||
+        role.includes(currentSearch)
+      );
+    });
+  }
+
+  // 상단 컨트롤 래퍼
+  const controlWrapper = document.createElement("div");
+  controlWrapper.className = "admin-ev-controls";
+
+  // 1. 탭 필터 & 실시간 검색 바
+  const topBar = document.createElement("div");
+  topBar.className = "admin-ev-top-bar";
+  topBar.innerHTML = `
+    <div class="admin-ev-filter-tabs">
+      <button type="button" class="admin-ev-tab-btn ${currentFilter === "all" ? "active" : ""}" data-ev-filter="all">
+        전체 (${totalCount})
+      </button>
+      <button type="button" class="admin-ev-tab-btn tab-super ${currentFilter === "최고관리자" ? "active" : ""}" data-ev-filter="최고관리자">
+        👑 최고관리자 (${superCount})
+      </button>
+      <button type="button" class="admin-ev-tab-btn tab-admin ${currentFilter === "관리자" ? "active" : ""}" data-ev-filter="관리자">
+        ⭐ 관리자 (${adminCount})
+      </button>
+      <button type="button" class="admin-ev-tab-btn tab-leader ${currentFilter === "인도자" ? "active" : ""}" data-ev-filter="인도자">
+        🧭 인도자 (${leaderCount})
+      </button>
+      <button type="button" class="admin-ev-tab-btn tab-member ${currentFilter === "전도인" ? "active" : ""}" data-ev-filter="전도인">
+        👤 전도인 (${memberCount})
+      </button>
+    </div>
+    <div class="admin-ev-search-box">
+      <input type="text" id="admin-ev-search" placeholder="🔍 이름/역할 검색..." value="${escapeAttr(state.adminEvSearch || "")}">
+    </div>
+  `;
+  controlWrapper.appendChild(topBar);
+
+  // 2. 신규 인원 등록 카드 (상단 배치)
+  let defaultRoleForAdd = "전도인";
+  if (currentFilter === "최고관리자" && isSuper) defaultRoleForAdd = "최고관리자";
+  else if (currentFilter === "관리자") defaultRoleForAdd = "관리자";
+  else if (currentFilter === "인도자") defaultRoleForAdd = "인도자";
+
+  const addCard = document.createElement("div");
+  addCard.className = "admin-ev-quick-add-card";
+  addCard.innerHTML = `
+    <div class="admin-ev-quick-add-title">
+      <strong>➕ 신규 등록</strong>
+      <span class="admin-ev-hint">이름과 권한, 봉사 정보를 등록합니다.${!isSuper ? " (비밀번호 설정은 최고관리자 전용)" : ""}</span>
+    </div>
+    <div class="admin-ev-quick-add-grid">
+      <div class="ev-add-field">
+        <label>이름 *</label>
+        <input type="text" data-field="name" placeholder="이름 입력" required>
+      </div>
+      ${
+        isSuper
+          ? `
+      <div class="ev-add-field">
+        <label>비밀번호</label>
+        <input type="text" data-field="password" placeholder="비밀번호 설정" autocomplete="off">
+      </div>
+      `
+          : `
+      <div class="ev-add-field" title="비밀번호 관리는 최고관리자만 가능합니다">
+        <label>비밀번호 <span style="font-size:10px; color:#ef4444;">(최고관리자 전용)</span></label>
+        <input type="text" data-field="password" placeholder="최고관리자만 설정 가능" disabled style="background:#f1f5f9; cursor:not-allowed;">
+      </div>
+      `
+      }
+      <div class="ev-add-field">
+        <label>권한(역할) *</label>
+        <select data-field="role" class="ev-role-select role-${defaultRoleForAdd}">
+          <option value="전도인" ${defaultRoleForAdd === "전도인" ? "selected" : ""}>👤 전도인</option>
+          <option value="인도자" ${defaultRoleForAdd === "인도자" ? "selected" : ""}>🧭 인도자</option>
+          <option value="관리자" ${defaultRoleForAdd === "관리자" ? "selected" : ""}>⭐ 관리자</option>
+          ${isSuper ? `<option value="최고관리자" ${defaultRoleForAdd === "최고관리자" ? "selected" : ""}>👑 최고관리자</option>` : ""}
+        </select>
+      </div>
+      <div class="ev-add-field" style="max-width: 80px;">
+        <label>성별</label>
+        <select data-field="gender">
+          <option value="">-</option>
+          <option value="남">남</option>
+          <option value="여">여</option>
+        </select>
+      </div>
+      <div class="ev-add-field" style="max-width: 80px;">
+        <label>차량정원</label>
+        <input type="number" data-field="capacity" placeholder="0" min="0" max="20">
+      </div>
+      <div class="ev-add-field">
+        <label>부부(배우자)</label>
+        <input type="text" data-field="spouse" placeholder="배우자 이름">
+      </div>
+      <div class="ev-add-checkboxes">
+        <label><input type="checkbox" data-field="driver"> 운전자</label>
+        <label><input type="checkbox" data-field="deaf"> 농인</label>
+      </div>
+      <div class="ev-add-btn-wrap">
+        <button type="button" data-action="create-ev" class="btn-create-ev">➕ 등록</button>
+      </div>
+    </div>
+  `;
+  controlWrapper.appendChild(addCard);
+  box.appendChild(controlWrapper);
+
+  // 3. 목록 테이블
+  const tableContainer = document.createElement("div");
+  tableContainer.className = "admin-table-container";
+
   const table = document.createElement("table");
-  table.className = "admin-table admin-table-wide";
+  table.className = "admin-table admin-table-wide admin-ev-table";
   table.innerHTML = `
     <thead>
       <tr>
-        <th>이름</th><th>성별</th><th>농인</th><th>역할</th><th>운전자</th><th>정원</th><th>부부</th><th>작업</th>
+        <th style="width: 14%;">이름</th>
+        <th style="width: 13%;">비밀번호</th>
+        <th style="width: 13%;">권한(역할)</th>
+        <th style="width: 7%;">성별</th>
+        <th style="width: 7%;">운전자</th>
+        <th style="width: 7%;">정원</th>
+        <th style="width: 7%;">농인</th>
+        <th style="width: 14%;">부부</th>
+        <th style="width: 18%;">작업</th>
       </tr>
     </thead>
     <tbody></tbody>
   `;
 
   const tbody = table.querySelector("tbody");
-  evangelists.forEach((ev) => {
-    const tr = document.createElement("tr");
-    tr.dataset.name = ev["이름"];
+  if (filtered.length === 0) {
+    const emptyTr = document.createElement("tr");
+    emptyTr.innerHTML = `<td colspan="9" style="text-align:center; padding: 24px; color:#64748b;">조건에 맞는 등록 인원이 없습니다.</td>`;
+    tbody.appendChild(emptyTr);
+  } else {
+    filtered.forEach((ev) => {
+      const tr = document.createElement("tr");
+      tr.dataset.name = ev["이름"];
+      tr.dataset.originalName = ev["이름"];
 
-    tr.innerHTML = `
-      <td><input type="text" value="${ev["이름"] || ""}" readOnly></td>
-      <td><input type="text" value="${ev["성별"] || ""}" data-field="gender" style="width:100%"></td>
-      <td><input type="checkbox" ${isTrueValue(ev["농인"]) ? "checked" : ""} data-field="deaf"></td>
-      <td><input type="text" value="${ev["역할"] || ""}" data-field="role" style="width:100%"></td>
-      <td><input type="checkbox" ${isTrueValue(ev["운전자"]) ? "checked" : ""} data-field="driver"></td>
-      <td><input type="number" value="${ev["차량"] || 0}" data-field="capacity" style="width:100%"></td>
-      <td><input type="text" value="${ev["부부"] || ""}" data-field="spouse" style="width:100%"></td>
-      <td class="admin-actions-cell">
-        <div style="display:flex; gap:2px; justify-content:center">
-          <button data-action="save-ev" data-name="${ev["이름"]}" style="flex:1; padding:4px 0">저장</button>
-          <button data-action="delete-ev" data-name="${ev["이름"]}" style="flex:1; padding:4px 0; background-color:#ef4444">삭제</button>
-        </div>
-      </td>
-    `;
-    tbody.appendChild(tr);
+      const rawRole = (ev["역할"] || "전도인").trim();
+      const isRowSuper = rawRole === "최고관리자";
+      const currentRole = ["최고관리자", "관리자", "인도자"].includes(rawRole)
+        ? rawRole
+        : "전도인";
+
+      tr.innerHTML = `
+        <td><input type="text" value="${escapeAttr(ev["이름"] || "")}" data-field="name" class="ev-input-name" title="이름 수정 가능" ${!isSuper && isRowSuper ? "disabled" : ""}></td>
+        ${
+          isSuper
+            ? `
+        <td><input type="text" value="${escapeAttr(ev["비밀번호"] || "")}" data-field="password" class="ev-input-pw" placeholder="비번 없음" autocomplete="off"></td>
+        `
+            : `
+        <td><div class="ev-pw-locked" title="비밀번호 관리는 최고관리자만 가능합니다">🔒 ••••••</div></td>
+        `
+        }
+        <td>
+          ${
+            isSuper
+              ? `
+          <select data-field="role" class="ev-role-select role-${currentRole}">
+            <option value="전도인" ${currentRole === "전도인" ? "selected" : ""}>👤 전도인</option>
+            <option value="인도자" ${currentRole === "인도자" ? "selected" : ""}>🧭 인도자</option>
+            <option value="관리자" ${currentRole === "관리자" ? "selected" : ""}>⭐ 관리자</option>
+            <option value="최고관리자" ${currentRole === "최고관리자" ? "selected" : ""}>👑 최고관리자</option>
+          </select>
+          `
+              : isRowSuper
+              ? `
+          <span class="ev-role-badge role-최고관리자">👑 최고관리자</span>
+          <input type="hidden" data-field="role" value="최고관리자">
+          `
+              : `
+          <select data-field="role" class="ev-role-select role-${currentRole}">
+            <option value="전도인" ${currentRole === "전도인" ? "selected" : ""}>👤 전도인</option>
+            <option value="인도자" ${currentRole === "인도자" ? "selected" : ""}>🧭 인도자</option>
+            <option value="관리자" ${currentRole === "관리자" ? "selected" : ""}>⭐ 관리자</option>
+          </select>
+          `
+          }
+        </td>
+        <td>
+          <select data-field="gender" style="width:100%" ${!isSuper && isRowSuper ? "disabled" : ""}>
+            <option value="" ${!ev["성별"] ? "selected" : ""}>-</option>
+            <option value="남" ${ev["성별"] === "남" ? "selected" : ""}>남</option>
+            <option value="여" ${ev["성별"] === "여" ? "selected" : ""}>여</option>
+          </select>
+        </td>
+        <td><input type="checkbox" ${isTrueValue(ev["운전자"]) ? "checked" : ""} data-field="driver" ${!isSuper && isRowSuper ? "disabled" : ""}></td>
+        <td><input type="number" value="${ev["차량"] || 0}" data-field="capacity" style="width:100%" min="0" max="20" ${!isSuper && isRowSuper ? "disabled" : ""}></td>
+        <td><input type="checkbox" ${isTrueValue(ev["농인"]) ? "checked" : ""} data-field="deaf" ${!isSuper && isRowSuper ? "disabled" : ""}></td>
+        <td><input type="text" value="${escapeAttr(ev["부부"] || "")}" data-field="spouse" style="width:100%" placeholder="배우자" ${!isSuper && isRowSuper ? "disabled" : ""}></td>
+        <td class="admin-actions-cell">
+          ${
+            !isSuper && isRowSuper
+              ? `
+            <span style="font-size:11px; color:#94a3b8; font-weight:600;">최고관리자 전용</span>
+          `
+              : `
+            <div style="display:flex; gap:3px; justify-content:center">
+              <button type="button" data-action="save-ev" data-name="${escapeAttr(ev["이름"])}" class="btn-save-ev">저장</button>
+              <button type="button" data-action="delete-ev" data-name="${escapeAttr(ev["이름"])}" class="btn-delete-ev">삭제</button>
+            </div>
+          `
+          }
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  tableContainer.appendChild(table);
+  box.appendChild(tableContainer);
+
+  // 이벤트 바인딩: 검색 및 역할 변경 시 색상 즉시 업데이트
+  const searchInput = box.querySelector("#admin-ev-search");
+  if (searchInput) {
+    searchInput.addEventListener("input", (e) => {
+      state.adminEvSearch = e.target.value.trim().toLowerCase();
+      const rows = tbody.querySelectorAll("tr");
+      rows.forEach((tr) => {
+        if (!tr.dataset.name) return;
+        const nameVal = (
+          tr.querySelector('[data-field="name"]')?.value ||
+          tr.dataset.name ||
+          ""
+        ).toLowerCase();
+        const spouseVal = (
+          tr.querySelector('[data-field="spouse"]')?.value || ""
+        ).toLowerCase();
+        const roleVal = (
+          tr.querySelector('[data-field="role"]')?.value || ""
+        ).toLowerCase();
+        const matches =
+          !state.adminEvSearch ||
+          nameVal.includes(state.adminEvSearch) ||
+          spouseVal.includes(state.adminEvSearch) ||
+          roleVal.includes(state.adminEvSearch);
+        tr.style.display = matches ? "" : "none";
+      });
+    });
+  }
+
+  box.querySelectorAll("select[data-field='role']").forEach((sel) => {
+    sel.addEventListener("change", (e) => {
+      const val = e.target.value;
+      e.target.className = `ev-role-select role-${val}`;
+    });
   });
-
-  const newTr = document.createElement("tr");
-  newTr.dataset.new = "true";
-  newTr.innerHTML = `
-    <td><input type="text" placeholder="이름" data-field="name"></td>
-    <td><input type="text" data-field="gender" style="width:100%"></td>
-    <td><input type="checkbox" data-field="deaf"></td>
-    <td><input type="text" value="전도인" data-field="role" style="width:100%"></td>
-    <td><input type="checkbox" data-field="driver"></td>
-    <td><input type="number" data-field="capacity" style="width:100%"></td>
-    <td><input type="text" data-field="spouse" style="width:100%"></td>
-    <td class="admin-actions-cell">
-      <div style="display:flex; gap:2px; justify-content:center">
-        <button data-action="create-ev" style="width:100%; padding:4px 0">추가</button>
-      </div>
-    </td>
-  `;  tbody.appendChild(newTr);
-  box.appendChild(table);
 };
 
 const renderAdminDeletedCards = () => {
@@ -427,12 +670,9 @@ const renderAdminPanel = () => {
     return;
   }
 
-  const userRole = String(state.user.role || "").trim();
-  const isAdmin = userRole === "관리자";
-  const isLeader = userRole === "인도자";
-  const canAccessAdmin = isAdmin || isLeader;
+  const canAccess = isAdmin() || isLeader();
 
-  if (!canAccessAdmin) {
+  if (!canAccess) {
     elements.adminPanel.classList.add("hidden");
     return;
   }
@@ -462,7 +702,7 @@ const renderAdminPanel = () => {
     if (sections.visits) sections.visits.classList.remove("hidden");
     renderAdminCompletions();
   } else if (menu === "admin-ev") {
-    if (overlayTitleEl) overlayTitleEl.textContent = "전도인 명단 관리";
+    if (overlayTitleEl) overlayTitleEl.textContent = "인원 관리";
     if (sections["admin-ev"]) sections["admin-ev"].classList.remove("hidden");
     renderAdminEvangelists();
   } else if (menu === "admin-deleted") {

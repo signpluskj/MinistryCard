@@ -70,7 +70,11 @@ const state = {
   carAssignSlot: "오전",
   carAssignAssignmentsDate: "",
   carAssignAssignmentsAll: [],
-  volunteerDayRowScrollLeft: 0
+  volunteerDayRowScrollLeft: 0,
+  volunteerReportMonth: "",
+  volunteerReportTab: "dates",
+  adminEvRoleFilter: "all",
+  adminEvSearch: ""
 };
 
 let carAssignTapSelection = null;
@@ -124,6 +128,9 @@ const elements = {
   volunteerOverlay: document.getElementById("volunteer-overlay"),
   closeVolunteer: document.getElementById("close-volunteer"),
   volunteerBody: document.getElementById("volunteer-body"),
+  volunteerReportOverlay: document.getElementById("volunteer-report-overlay"),
+  closeVolunteerReport: document.getElementById("close-volunteer-report"),
+  volunteerReportBody: document.getElementById("volunteer-report-body"),
   carAssignOverlay: document.getElementById("car-assign-overlay"),
   closeCarAssign: document.getElementById("close-car-assign"),
   adminOverlay: document.getElementById("admin-overlay"),
@@ -191,6 +198,7 @@ const closeAllPopups = () => {
     elements.areaOverlay,
     elements.completionOverlay,
     elements.volunteerOverlay,
+    elements.volunteerReportOverlay,
     elements.carAssignOverlay,
     elements.adminOverlay,
     elements.carSelectOverlay,
@@ -467,8 +475,9 @@ const renderMyCarInfo = () => {
   if (!box || !state.user) {
     return;
   }
-  const rows = state.data.assignments || [];
+  const allRows = state.data.assignments || [];
   const name = normalizeAssignmentName(state.user.name);
+  const today = todayISO();
   
   const showNoInfo = () => {
     box.innerHTML = '<div class="car-info-main">오늘 배정된 차량 정보가 없습니다.</div>';
@@ -477,19 +486,30 @@ const renderMyCarInfo = () => {
     box.onclick = null;
   };
 
-  if (!rows.length || !name) {
+  if (!allRows.length || !name) {
+    showNoInfo();
+    return;
+  }
+
+  // 오늘 날짜의 배정 데이터만 필터링
+  const todayRows = allRows.filter(row => {
+    const rowDate = row["날짜"] || row["date"] || "";
+    return rowDate === today;
+  });
+
+  if (!todayRows.length) {
     showNoInfo();
     return;
   }
   
-  // 현재 사용자가 운전자이거나 동승자인 행 찾기
-  const myRow = rows.find(row => {
+  // 현재 사용자가 운전자이거나 동승자인 행 모두 찾기 (오전/오후 각각 존재 가능)
+  const myRows = todayRows.filter(row => {
     const driver = normalizeAssignmentName(row["이름"]);
     const passengers = (row["동승자"] || []).map(p => normalizeAssignmentName(p));
     return driver === name || passengers.includes(name);
-  }) || null;
+  });
 
-  if (!myRow) {
+  if (!myRows.length) {
     showNoInfo();
     return;
   }
@@ -502,87 +522,105 @@ const renderMyCarInfo = () => {
   };
 
   if (state.carDashboardExpanded) {
-    renderFullCarDashboard(box, rows);
+    renderFullCarDashboard(box, todayRows);
     return;
   }
   
-  const carId = String(myRow["차량"] || "");
-  const driverName = normalizeAssignmentName(myRow["이름"]);
-  const passengers = (myRow["동승자"] || []).map(p => normalizeAssignmentName(p)).filter(Boolean);
-  
-  const textParts = [];
-  textParts.push(`차량 ${carId}`);
-  if (driverName) {
-    textParts.push(`운전자: ${driverName}`);
-  }
-  if (passengers.length) {
-    textParts.push(passengers.join(", "));
-  }
   const lines = [];
-  lines.push(`<div class="car-info-main" style="display:flex; justify-content:space-between; align-items:center;">
-    <span>${textParts.join(" | ")}</span>
-    <span style="font-size:10px; font-weight:bold; color:#16a34a;">▼</span>
-  </div>`);
-  
-  const cards = (state.data.cards || []).filter(
-    (card) => getCardAssignedCarIdForDate(card, todayISO()) === carId
-  );
-  if (cards.length) {
-    const labels = cards
-      .slice()
-      .sort((a, b) =>
-        compareCardNumbers(a["카드번호"] || "", b["카드번호"] || "")
-      )
-      .map((card) => String(card["카드번호"] || ""));
-    lines.push(`<div class="car-info-separator"></div>`);
-    lines.push(`<div class="card-info-main">${labels.join(", ")}</div>`);
-  }
+  myRows.forEach((myRow, idx) => {
+    const slot = String(myRow["시간대"] || "오전").trim();
+    const carId = String(myRow["차량"] || "");
+    const driverName = normalizeAssignmentName(myRow["이름"]);
+    const passengers = (myRow["동승자"] || []).map(p => normalizeAssignmentName(p)).filter(Boolean);
+    
+    const textParts = [];
+    textParts.push(`[${slot}] 차량 ${carId}`);
+    if (driverName) {
+      textParts.push(`운전자: ${driverName}`);
+    }
+    if (passengers.length) {
+      textParts.push(passengers.join(", "));
+    }
+    
+    lines.push(`<div class="car-info-main" style="display:flex; justify-content:space-between; align-items:center; ${idx > 0 ? 'margin-top:4px;' : ''}">
+      <span>${textParts.join(" | ")}</span>
+      ${idx === 0 ? '<span style="font-size:10px; font-weight:bold; color:#16a34a;">▼</span>' : ''}
+    </div>`);
+    
+    const cards = (state.data.cards || []).filter(
+      (card) => getCardAssignedCarIdForDate(card, today) === carId
+    );
+    if (cards.length) {
+      const labels = cards
+        .slice()
+        .sort((a, b) =>
+          compareCardNumbers(a["카드번호"] || "", b["카드번호"] || "")
+        )
+        .map((card) => String(card["카드번호"] || ""));
+      lines.push(`<div class="card-info-main" style="font-size:12px; color:#15803d; margin-top:2px;">카드: ${labels.join(", ")}</div>`);
+    }
+  });
+
   box.innerHTML = lines.join("");
   box.classList.remove("hidden");
 };
 
-const renderFullCarDashboard = (box, rows) => {
+const renderFullCarDashboard = (box, todayRows) => {
   const lines = [];
   lines.push(`<div class="car-info-main" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid #bbf7d0; padding-bottom:6px;">
-    <span style="color:#166534">오늘의 전체 배정 현황</span>
+    <span style="color:#166534; font-weight:700;">오늘의 전체 차량 배정 현황</span>
     <span style="font-size:10px; font-weight:normal; color:#16a34a;">▲</span>
   </div>`);
 
-  const carGroups = {};
-  rows.forEach(row => {
-    const cId = String(row["차량"] || "미지정");
-    if (!carGroups[cId]) carGroups[cId] = { driver: "", passengers: [], cards: [] };
-    carGroups[cId].driver = normalizeAssignmentName(row["이름"]);
-    carGroups[cId].passengers = (row["동승자"] || []).map(p => normalizeAssignmentName(p)).filter(Boolean);
-  });
-
-  // 카드 정보 매칭
+  const slots = ["오전", "오후"];
   const allCards = state.data.cards || [];
-  allCards.forEach(card => {
-    const cId = getCardAssignedCarIdForDate(card, todayISO());
-    if (cId && carGroups[cId]) {
-      carGroups[cId].cards.push(String(card["카드번호"] || ""));
-    }
+  const today = todayISO();
+  let hasAnySlot = false;
+
+  slots.forEach(slotName => {
+    const slotRows = todayRows.filter(r => String(r["시간대"] || "오전").trim() === slotName);
+    if (!slotRows.length) return;
+    hasAnySlot = true;
+
+    lines.push(`<div style="font-weight:700; font-size:14px; color:${slotName === '오후' ? '#b45309' : '#1d4ed8'}; margin-top:8px; margin-bottom:4px;">▶ ${slotName} 배정</div>`);
+
+    const carGroups = {};
+    slotRows.forEach(row => {
+      const cId = String(row["차량"] || "미지정");
+      if (!carGroups[cId]) carGroups[cId] = { driver: "", passengers: [], cards: [] };
+      carGroups[cId].driver = normalizeAssignmentName(row["이름"]);
+      carGroups[cId].passengers = (row["동승자"] || []).map(p => normalizeAssignmentName(p)).filter(Boolean);
+    });
+
+    // 카드 정보 매칭
+    allCards.forEach(card => {
+      const cId = getCardAssignedCarIdForDate(card, today);
+      if (cId && carGroups[cId]) {
+        carGroups[cId].cards.push(String(card["카드번호"] || ""));
+      }
+    });
+
+    const sortedCarIds = Object.keys(carGroups).sort((a, b) => {
+      const na = parseInt(a), nb = parseInt(b);
+      if (!isNaN(na) && !isNaN(nb)) return na - nb;
+      return a.localeCompare(b);
+    });
+
+    sortedCarIds.forEach(cId => {
+      const g = carGroups[cId];
+      lines.push(`<div class="car-dashboard-row" style="margin-bottom:8px; padding-left:6px;">`);
+      lines.push(`  <div style="font-size:14px; color:black;"><strong>차량 ${cId}</strong> | 운전자: ${g.driver || "미지정"}${g.passengers.length ? " | " + g.passengers.join(", ") : ""}</div>`);
+      if (g.cards.length) {
+        g.cards.sort((a, b) => compareCardNumbers(a, b));
+        lines.push(`  <div style="font-size:13px; color:#166534; margin-top:2px; padding-left:10px; border-left:2px solid #86efac;">${g.cards.join(", ")}</div>`);
+      }
+      lines.push(`</div>`);
+    });
   });
 
-  const sortedCarIds = Object.keys(carGroups).sort((a, b) => {
-    const na = parseInt(a), nb = parseInt(b);
-    if (!isNaN(na) && !isNaN(nb)) return na - nb;
-    return a.localeCompare(b);
-  });
-
-  sortedCarIds.forEach(cId => {
-    const g = carGroups[cId];
-    lines.push(`<div class="car-dashboard-row" style="margin-bottom:12px;">`);
-    lines.push(`  <div style="font-size:15px; color:black;"><strong>차량 ${cId}</strong> | 운전자: ${g.driver}${g.passengers.length ? " | " + g.passengers.join(", ") : ""}</div>`);
-    if (g.cards.length) {
-      g.cards.sort((a, b) => compareCardNumbers(a, b));
-      lines.push(`  <div style="font-size:14px; color:#166534; margin-top:2px; padding-left:10px; border-left:2px solid #86efac;">${g.cards.join(", ")}</div>`);
-    } else {
-      lines.push(`  <div style="font-size:14px; color:#94a3b8; margin-top:2px; padding-left:10px; border-left:2px solid #e2e8f0;">배정된 카드 없음</div>`);
-    }
-    lines.push(`</div>`);
-  });
+  if (!hasAnySlot) {
+    lines.push('<div style="font-size:13px; color:#64748b; padding:8px 0;">배정된 차량이 없습니다.</div>');
+  }
 
   box.innerHTML = lines.join("");
   box.classList.remove("hidden");
@@ -1136,19 +1174,11 @@ const renderCarAssignSlotRow = () => {
     return;
   }
   container.innerHTML = "";
-  const days = buildVolunteerDayList();
-  const currentDate = state.carAssignDate || todayISO();
-  const day = days.find((d) => d.isoDate === currentDate) || null;
-  const slots = [];
-  if (!day || day.slotAMEnabled !== false) {
-    slots.push("오전");
-  }
-  if (!day || day.slotPMEnabled !== false) {
-    slots.push("오후");
-  }
-  const availableSlots = slots.length ? slots : ["오전"];
+  
+  // 차량 배정에서는 오전, 오후 모두 항상 선택 가능하도록 지원
+  const availableSlots = ["오전", "오후"];
   if (availableSlots.indexOf(state.carAssignSlot) === -1) {
-    state.carAssignSlot = availableSlots[0];
+    state.carAssignSlot = "오전";
   }
   availableSlots.forEach((slot) => {
     const btn = document.createElement("button");
@@ -1172,6 +1202,7 @@ const renderCarAssignSlotRow = () => {
 
 const applyCarAssignDataForSlot = (date, slot, dayOverride) => {
   const selectedSlot = slot === "오후" ? "오후" : "오전";
+  state.carAssignSlot = selectedSlot;
   const day =
     dayOverride || buildVolunteerDayList().find((d) => d.isoDate === date) || null;
   const allRows =
@@ -1183,11 +1214,27 @@ const applyCarAssignDataForSlot = (date, slot, dayOverride) => {
     return rowSlot === selectedSlot;
   });
   state.data.assignments = sanitizeAssignmentRows(filteredRows);
-  const signupNames = day
-    ? (day.participantEntries || [])
-        .filter((entry) => String(entry.slot || "오전") === selectedSlot)
-        .map((entry) => normalizeAssignmentName(entry.name))
-    : [];
+  
+  let signupNames = [];
+  if (day) {
+    const entries = day.participantEntries || [];
+    signupNames = entries
+      .filter((entry) => {
+        const entrySlot = String(entry.slot || "").trim() || "오전";
+        return entrySlot === selectedSlot;
+      })
+      .map((entry) => normalizeAssignmentName(entry.name));
+
+    // 이전 버전 호환성: participantEntries가 없고 participants만 있는 경우 오전으로 매핑
+    if (selectedSlot === "오전" && Array.isArray(day.participants)) {
+      day.participants.forEach((pName) => {
+        const norm = normalizeAssignmentName(pName);
+        if (norm && !signupNames.includes(norm)) {
+          signupNames.push(norm);
+        }
+      });
+    }
+  }
   
   const assignmentNames = [];
   (state.data.assignments || []).forEach(row => {
@@ -1230,18 +1277,10 @@ const setCarAssignDate = async (isoDate) => {
     const days = buildVolunteerDayList();
     const day =
       days.find((d) => d.isoDate === date) || null;
-    const availableSlots = [];
-    if (!day || day.slotAMEnabled !== false) {
-      availableSlots.push("오전");
-    }
-    if (!day || day.slotPMEnabled !== false) {
-      availableSlots.push("오후");
-    }
-    if (!availableSlots.length) {
-      availableSlots.push("오전");
-    }
-    if (availableSlots.indexOf(state.carAssignSlot) === -1) {
-      state.carAssignSlot = availableSlots[0];
+    
+    // 유효한 슬롯 유지
+    if (state.carAssignSlot !== "오전" && state.carAssignSlot !== "오후") {
+      state.carAssignSlot = "오전";
     }
     const selectedSlot = state.carAssignSlot || "오전";
 
@@ -1259,7 +1298,7 @@ const setCarAssignDate = async (isoDate) => {
     state.carAssignAssignmentsDate = date;
     state.carAssignAssignmentsAll = (assignments || []).map(a => ({
       "날짜": a.date,
-      "시간대": a.slot,
+      "시간대": a.slot || "오전",
       "차량": a.car_id,
       "이름": a.driver,
       "동승자": a.passengers || []
@@ -1274,8 +1313,40 @@ const setCarAssignDate = async (isoDate) => {
   }
 };
 
+const unassignMember = (name, fromCarId) => {
+  if (!name || !fromCarId) return;
+
+  const cars = state.carAssignments || [];
+  const fromCar = cars.find((c) => String(c.carId) === String(fromCarId));
+  if (!fromCar) return;
+
+  fromCar.members = (fromCar.members || []).filter((m) => m !== name);
+  if (fromCar.driver === name) {
+    fromCar.driver = fromCar.members.length > 0 ? fromCar.members[0] : "";
+  }
+
+  // 참여자 명단(state.participantsToday)에 유지되도록 확인
+  const normName = normalizeAssignmentName(name);
+  if (!state.participantsToday.some(n => normalizeAssignmentName(n) === normName)) {
+    state.participantsToday.push(name);
+  }
+
+  state.carAssignments = cars;
+  carAssignTapSelection = null;
+  document.querySelectorAll(".car-member, .selected-person").forEach(el => el.classList.remove("tap-selected"));
+  renderCarAssignmentsPanel();
+  renderSelectedParticipants();
+  setStatus(`${name} 님이 미배정(윗 공간)으로 이동되었습니다.`);
+};
+
 const moveMember = (name, fromCarId, toCarId) => {
   if (!name) return;
+
+  // toCarId가 없으면 미배정(윗 공간)으로 이동 처리
+  if (!toCarId) {
+    unassignMember(name, fromCarId);
+    return;
+  }
 
   const cars = state.carAssignments || [];
   const fromCar = fromCarId ? cars.find((c) => String(c.carId) === String(fromCarId)) : null;
@@ -1325,7 +1396,7 @@ const renderCarAssignmentsPanel = () => {
   if (!panel) {
     return;
   }
-  if (!state.user || state.user.role === "전도인") {
+  if (!isLeader()) {
     panel.innerHTML = "";
     return;
   }
@@ -1398,13 +1469,30 @@ const renderCarAssignmentsPanel = () => {
       item.className = "car-member";
       if (index === 0) {
         item.classList.add("is-driver");
-        item.innerHTML = `<strong>${name}</strong>`;
-      } else {
-        item.textContent = name;
       }
       item.draggable = true;
       item.dataset.name = name;
       item.dataset.carId = car.carId;
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "car-member-name";
+      if (index === 0) {
+        nameSpan.innerHTML = `<strong>${name}</strong>`;
+      } else {
+        nameSpan.textContent = name;
+      }
+      item.appendChild(nameSpan);
+
+      const unassignBtn = document.createElement("button");
+      unassignBtn.type = "button";
+      unassignBtn.className = "car-member-unassign";
+      unassignBtn.title = "미배정(윗 공간)으로 이동";
+      unassignBtn.textContent = "↑";
+      unassignBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        unassignMember(name, car.carId);
+      });
+      item.appendChild(unassignBtn);
 
       // 드래그 시작
       item.addEventListener("dragstart", (e) => {
@@ -1593,9 +1681,7 @@ const renderSelectedParticipants = () => {
   }
   const names = state.participantsToday.slice();
   box.innerHTML = "";
-  if (!names.length) {
-    return;
-  }
+
   const assigned = new Set();
   (state.carAssignments || []).forEach((car) => {
     if (car.driver) {
@@ -1610,15 +1696,48 @@ const renderSelectedParticipants = () => {
   const unassigned = names.filter(
     (name) => !assigned.has(normalizeAssignmentName(name))
   );
-  const frag = document.createDocumentFragment();
+
+  const header = document.createElement("div");
+  header.className = "car-assign-unassigned-header";
+  header.innerHTML = `
+    <div class="car-assign-unassigned-title">
+      <span>미배정 인원</span>
+      <span style="font-size:12px; color:#2563eb; font-weight:700;">(${unassigned.length}명)</span>
+    </div>
+    <div class="car-assign-unassigned-hint">차량에서 [↑] 버튼을 누르거나 인원을 클릭 후 이곳을 누르면 미배정으로 이동됩니다.</div>
+  `;
+  box.appendChild(header);
+
+  const listWrap = document.createElement("div");
+  listWrap.style.display = "flex";
+  listWrap.style.flexWrap = "wrap";
+  listWrap.style.gap = "6px";
+
   if (!unassigned.length) {
-    box.appendChild(frag);
+    const emptyMsg = document.createElement("div");
+    emptyMsg.className = "selected-person-empty";
+    emptyMsg.textContent = "배정 대기 중인 인원이 없습니다. (차량에서 인원을 올릴 수 있습니다)";
+    box.appendChild(emptyMsg);
     return;
   }
+
   unassigned.forEach((name) => {
     const item = document.createElement("div");
     item.className = "selected-person";
     item.textContent = name;
+    item.draggable = true;
+
+    item.addEventListener("dragstart", (e) => {
+      item.classList.add("dragging");
+      e.dataTransfer.setData("text/plain", JSON.stringify({
+        name: name,
+        fromCarId: null
+      }));
+    });
+
+    item.addEventListener("dragend", () => {
+      item.classList.remove("dragging");
+    });
     
     // 클릭하여 선택
     item.addEventListener("click", (e) => {
@@ -1634,18 +1753,17 @@ const renderSelectedParticipants = () => {
       }
     });
     
-    frag.appendChild(item);
+    listWrap.appendChild(item);
   });
-  box.appendChild(frag);
+  box.appendChild(listWrap);
 };
+
 
 const renderCarAssignPopup = () => {
   if (!elements.carAssignOverlay || !state.user) {
     return;
   }
-  const userRole = String(state.user.role || "").trim();
-  const isLeader = userRole === "관리자" || userRole === "인도자";
-  if (!isLeader) {
+  if (!isLeader()) {
     history.back();
     return;
   }
@@ -1921,6 +2039,10 @@ const loadConfig = async () => {
 };
 
 const saveConfig = async () => {
+  if (!isSuperAdmin()) {
+    alert("최고관리자만 연결 설정을 변경할 수 있습니다.");
+    return;
+  }
   let url = DEFAULT_API_URL;
   if (elements.apiUrlInput) {
     const value = elements.apiUrlInput.value.trim();
@@ -2124,10 +2246,8 @@ const renderVolunteerOverlay = () => {
   }
   const weeks = state.volunteerWeeks || [];
   body.innerHTML = "";
-  const userRole = String(state.user.role || "").trim();
-  const isAdmin = userRole === "관리자";
-  const isLeader = userRole === "인도자";
-  const canManageVolunteerSignups = isAdmin || isLeader;
+  const isAdminUser = isAdmin();
+  const canManageVolunteerSignups = isLeader();
 
   const bindLongPress = (element, onLongPress) => {
     let timer = null;
@@ -2166,7 +2286,7 @@ const renderVolunteerOverlay = () => {
   const allDays = buildVolunteerDayList();
   ensureVolunteerSelection();
 
-  if (!weeks.length && !isAdmin) {
+  if (!weeks.length && !isAdminUser) {
     const msg = document.createElement("div");
     msg.className = "volunteer-empty-msg";
     msg.textContent = "등록된 봉사 주간이 없습니다.";
@@ -2279,7 +2399,7 @@ const renderVolunteerOverlay = () => {
           }
           renderVolunteerOverlay();
         });
-        if (isAdmin) {
+        if (isAdminUser) {
           bindLongPress(btn, async () => {
             const ok = window.confirm(`${dateLabel} ${weekdayLabel}의 오전/오후 신청 전체를 삭제할까요?`);
             if (!ok) return;
@@ -2376,11 +2496,30 @@ const renderVolunteerOverlay = () => {
         list.className = "volunteer-participant-list";
         const entries = (selectedDay.participantEntries || []).filter(e => (e.slot || "오전") === slotName);
         if (entries.length) {
+          // 해당 일자 및 시간대의 차량 배정 정보 찾기
+          const dayAssignments = (state.data.assignments || []).filter(a => {
+            const aDate = a["날짜"] || a["date"] || "";
+            const aSlot = String(a["시간대"] || "오전").trim();
+            return aDate === selectedDay.isoDate && aSlot === slotName;
+          });
+
           entries.forEach((entry) => {
             const entryName = String(entry.name || "");
             const chip = document.createElement("div");
             chip.className = "volunteer-participant";
-            chip.textContent = entryName;
+            
+            // 배정된 차량 확인
+            const assignedRow = dayAssignments.find(row => {
+              const driver = normalizeAssignmentName(row["이름"]);
+              const passengers = (row["동승자"] || []).map(p => normalizeAssignmentName(p));
+              const normEntry = normalizeAssignmentName(entryName);
+              return driver === normEntry || passengers.includes(normEntry);
+            });
+            if (assignedRow && assignedRow["차량"]) {
+              chip.innerHTML = `${entryName} <span class="volunteer-car-chip">${assignedRow["차량"]}호차</span>`;
+            } else {
+              chip.textContent = entryName;
+            }
             if (canManageVolunteerSignups) {
               bindLongPress(chip, async () => {
                 const ok = window.confirm(`${entryName} (${slotName}) 신청자를 삭제할까요?`);
@@ -2655,7 +2794,7 @@ const renderVolunteerOverlay = () => {
     mainBox.appendChild(grid);
   }
 
-  if (isAdmin) {
+  if (isAdminUser) {
     const adminBox = document.createElement("div");
     adminBox.className = "volunteer-admin";
     const title = document.createElement("div");
@@ -3095,6 +3234,518 @@ const openVolunteerOverlay = async () => {
   renderVolunteerOverlay();
 };
 
+const renderVolunteerReportOverlay = async () => {
+  if (!elements.volunteerReportOverlay || !elements.volunteerReportBody) return;
+  if (!isAdmin()) {
+    alert("관리자만 접근할 수 있습니다.");
+    history.back();
+    return;
+  }
+
+  const body = elements.volunteerReportBody;
+  body.innerHTML = "";
+
+  setLoading(true, "봉사 참여자 현황 데이터를 불러오는 중...");
+  try {
+    await loadVolunteerConfig();
+  } finally {
+    setLoading(false);
+  }
+
+  // 기본 월 설정 (YYYY-MM)
+  const today = todayISO();
+  if (!state.volunteerReportMonth) {
+    state.volunteerReportMonth = today.slice(0, 7);
+  }
+  const currentMonth = state.volunteerReportMonth; // "YYYY-MM"
+
+  // 1. 월 선택 바 (Month Bar)
+  const monthBar = document.createElement("div");
+  monthBar.className = "volunteer-report-month-bar";
+
+  const prevBtn = document.createElement("button");
+  prevBtn.type = "button";
+  prevBtn.className = "volunteer-report-nav-btn";
+  prevBtn.textContent = "◀ 이전달";
+  prevBtn.addEventListener("click", () => {
+    const parts = state.volunteerReportMonth.split("-");
+    let y = parseInt(parts[0], 10);
+    let m = parseInt(parts[1], 10) - 1;
+    if (m < 1) {
+      m = 12;
+      y -= 1;
+    }
+    state.volunteerReportMonth = `${y}-${String(m).padStart(2, "0")}`;
+    renderVolunteerReportOverlay();
+  });
+
+  const monthTitle = document.createElement("div");
+  monthTitle.className = "volunteer-report-month-title";
+  const [curY, curM] = currentMonth.split("-");
+  monthTitle.textContent = `${curY}년 ${parseInt(curM, 10)}월 참여 현황`;
+
+  const nextBtn = document.createElement("button");
+  nextBtn.type = "button";
+  nextBtn.className = "volunteer-report-nav-btn";
+  nextBtn.textContent = "다음달 ▶";
+  nextBtn.addEventListener("click", () => {
+    const parts = state.volunteerReportMonth.split("-");
+    let y = parseInt(parts[0], 10);
+    let m = parseInt(parts[1], 10) + 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+    state.volunteerReportMonth = `${y}-${String(m).padStart(2, "0")}`;
+    renderVolunteerReportOverlay();
+  });
+
+  const todayBtn = document.createElement("button");
+  todayBtn.type = "button";
+  todayBtn.className = "volunteer-report-nav-btn volunteer-report-today-btn";
+  todayBtn.textContent = "이번달";
+  todayBtn.addEventListener("click", () => {
+    state.volunteerReportMonth = today.slice(0, 7);
+    renderVolunteerReportOverlay();
+  });
+
+  const btnWrap = document.createElement("div");
+  btnWrap.style.display = "flex";
+  btnWrap.style.gap = "6px";
+  btnWrap.appendChild(prevBtn);
+  btnWrap.appendChild(todayBtn);
+  btnWrap.appendChild(nextBtn);
+
+  monthBar.appendChild(monthTitle);
+  monthBar.appendChild(btnWrap);
+  body.appendChild(monthBar);
+
+  // 데이터 수집
+  const allDays = buildVolunteerDayList();
+  // 선택된 월의 날짜들
+  const monthDays = allDays
+    .filter(d => d.isoDate && d.isoDate.startsWith(currentMonth))
+    .sort((a, b) => a.isoDate.localeCompare(b.isoDate));
+
+  // 전도인별 집계 및 통계
+  const personStats = {}; // { [name]: { am: number, pm: number, total: number, dates: [] } }
+  let totalServiceDays = 0;
+  let totalParticipantsCount = 0;
+
+  monthDays.forEach(d => {
+    const entries = d.participantEntries || [];
+    let hasAnyParticipant = false;
+    entries.forEach(e => {
+      const name = normalizeAssignmentName(e.name);
+      if (!name) return;
+      hasAnyParticipant = true;
+      totalParticipantsCount++;
+      if (!personStats[name]) {
+        personStats[name] = { am: 0, pm: 0, total: 0, dates: [] };
+      }
+      personStats[name].total++;
+      const slot = String(e.slot || "오전").trim();
+      if (slot === "오후") {
+        personStats[name].pm++;
+      } else {
+        personStats[name].am++;
+      }
+      const dateLabel = formatVolunteerDateText(d.dateText || d.isoDate);
+      personStats[name].dates.push(`${dateLabel}(${slot})`);
+    });
+    if (d.slotAMEnabled !== false || d.slotPMEnabled || hasAnyParticipant) {
+      totalServiceDays++;
+    }
+  });
+
+  const uniqueEvangelistCount = Object.keys(personStats).length;
+
+  // 2. 통계 카드 그리드
+  const statsGrid = document.createElement("div");
+  statsGrid.className = "volunteer-report-stats-grid";
+
+  statsGrid.innerHTML = `
+    <div class="volunteer-report-stat-card">
+      <div class="volunteer-report-stat-num">${totalServiceDays}일</div>
+      <div class="volunteer-report-stat-label">봉사 일정</div>
+    </div>
+    <div class="volunteer-report-stat-card">
+      <div class="volunteer-report-stat-num">${totalParticipantsCount}명·회</div>
+      <div class="volunteer-report-stat-label">총 참여 인원</div>
+    </div>
+    <div class="volunteer-report-stat-card">
+      <div class="volunteer-report-stat-num">${uniqueEvangelistCount}명</div>
+      <div class="volunteer-report-stat-label">고유 전도인 수</div>
+    </div>
+  `;
+  body.appendChild(statsGrid);
+
+  // 3. 탭 버튼 (날짜별 상세 / 전도인별 통계 / 지난 기록 삭제 관리)
+  const currentTab = state.volunteerReportTab || "dates";
+  const tabsBar = document.createElement("div");
+  tabsBar.className = "volunteer-report-tabs";
+
+  const tabDatesBtn = document.createElement("button");
+  tabDatesBtn.type = "button";
+  tabDatesBtn.className = `volunteer-report-tab-btn ${currentTab === "dates" ? "active" : ""}`;
+  tabDatesBtn.textContent = `📅 날짜별 상세 (${monthDays.length}일)`;
+  tabDatesBtn.addEventListener("click", () => {
+    state.volunteerReportTab = "dates";
+    renderVolunteerReportOverlay();
+  });
+
+  const tabEvBtn = document.createElement("button");
+  tabEvBtn.type = "button";
+  tabEvBtn.className = `volunteer-report-tab-btn ${currentTab === "evangelists" ? "active" : ""}`;
+  tabEvBtn.textContent = `👤 전도인별 통계 (${uniqueEvangelistCount}명)`;
+  tabEvBtn.addEventListener("click", () => {
+    state.volunteerReportTab = "evangelists";
+    renderVolunteerReportOverlay();
+  });
+
+  const tabDelBtn = document.createElement("button");
+  tabDelBtn.type = "button";
+  tabDelBtn.className = `volunteer-report-tab-btn tab-danger ${currentTab === "delete" ? "active" : ""}`;
+  tabDelBtn.textContent = `🗑 지난 기록 삭제 관리`;
+  tabDelBtn.addEventListener("click", () => {
+    state.volunteerReportTab = "delete";
+    renderVolunteerReportOverlay();
+  });
+
+  tabsBar.appendChild(tabDatesBtn);
+  tabsBar.appendChild(tabEvBtn);
+  tabsBar.appendChild(tabDelBtn);
+  body.appendChild(tabsBar);
+
+  const contentArea = document.createElement("div");
+  contentArea.style.display = "flex";
+  contentArea.style.flexDirection = "column";
+  contentArea.style.gap = "12px";
+  body.appendChild(contentArea);
+
+  if (currentTab === "dates") {
+    // 탭 1: 날짜별 상세
+    if (!monthDays.length) {
+      const emptyBox = document.createElement("div");
+      emptyBox.className = "volunteer-report-none-text";
+      emptyBox.style.padding = "30px 10px";
+      emptyBox.style.textAlign = "center";
+      emptyBox.textContent = `${curY}년 ${parseInt(curM, 10)}월에 등록된 봉사 일정이 없습니다.`;
+      contentArea.appendChild(emptyBox);
+    } else {
+      monthDays.forEach(d => {
+        const card = document.createElement("div");
+        card.className = "volunteer-report-day-card";
+
+        const weekdayRaw = String(d.weekday || "").trim();
+        const dateText = formatVolunteerDateText(d.dateText || d.isoDate);
+        const dayEntries = d.participantEntries || [];
+
+        // 해당 일자의 차량 배정 정보
+        const dayAssignments = (state.data.assignments || []).filter(a => {
+          const aDate = a["날짜"] || a["date"] || "";
+          return aDate === d.isoDate;
+        });
+
+        const headerRow = document.createElement("div");
+        headerRow.className = "volunteer-report-day-header";
+        headerRow.innerHTML = `
+          <div class="volunteer-report-day-date">${dateText} (${weekdayRaw}요일)</div>
+          <div class="volunteer-report-day-badge">참여 ${dayEntries.length}명</div>
+        `;
+        card.appendChild(headerRow);
+
+        // 오전 슬롯
+        const amEntries = dayEntries.filter(e => (e.slot || "오전") === "오전");
+        const amBlock = document.createElement("div");
+        amBlock.className = "volunteer-report-slot-block";
+        amBlock.innerHTML = `<div class="volunteer-report-slot-label slot-am">오전 (${amEntries.length}명)</div>`;
+        const amChipList = document.createElement("div");
+        amChipList.className = "volunteer-report-chip-list";
+        if (amEntries.length) {
+          amEntries.forEach(entry => {
+            const entryName = String(entry.name || "");
+            const chip = document.createElement("div");
+            chip.className = "volunteer-report-chip chip-am";
+            
+            // 배정 차량 찾기
+            const assigned = dayAssignments.find(a => {
+              if (String(a["시간대"] || "오전").trim() !== "오전") return false;
+              const driver = normalizeAssignmentName(a["이름"]);
+              const passengers = (a["동승자"] || []).map(p => normalizeAssignmentName(p));
+              const normEntry = normalizeAssignmentName(entryName);
+              return driver === normEntry || passengers.includes(normEntry);
+            });
+            const carText = assigned && assigned["차량"] ? `<span class="volunteer-car-chip">${assigned["차량"]}호차</span>` : "";
+            chip.innerHTML = `<span>${entryName}</span>${carText}`;
+            amChipList.appendChild(chip);
+          });
+        } else {
+          amChipList.innerHTML = `<span class="volunteer-report-none-text">신청자 없음</span>`;
+        }
+        amBlock.appendChild(amChipList);
+        card.appendChild(amBlock);
+
+        // 오후 슬롯
+        const pmEntries = dayEntries.filter(e => e.slot === "오후");
+        const pmBlock = document.createElement("div");
+        pmBlock.className = "volunteer-report-slot-block";
+        pmBlock.innerHTML = `<div class="volunteer-report-slot-label slot-pm">오후 (${pmEntries.length}명)</div>`;
+        const pmChipList = document.createElement("div");
+        pmChipList.className = "volunteer-report-chip-list";
+        if (pmEntries.length) {
+          pmEntries.forEach(entry => {
+            const entryName = String(entry.name || "");
+            const chip = document.createElement("div");
+            chip.className = "volunteer-report-chip chip-pm";
+            
+            // 배정 차량 찾기
+            const assigned = dayAssignments.find(a => {
+              if (String(a["시간대"] || "오전").trim() !== "오후") return false;
+              const driver = normalizeAssignmentName(a["이름"]);
+              const passengers = (a["동승자"] || []).map(p => normalizeAssignmentName(p));
+              const normEntry = normalizeAssignmentName(entryName);
+              return driver === normEntry || passengers.includes(normEntry);
+            });
+            const carText = assigned && assigned["차량"] ? `<span class="volunteer-car-chip">${assigned["차량"]}호차</span>` : "";
+            chip.innerHTML = `<span>${entryName}</span>${carText}`;
+            pmChipList.appendChild(chip);
+          });
+        } else {
+          pmChipList.innerHTML = `<span class="volunteer-report-none-text">신청자 없음</span>`;
+        }
+        pmBlock.appendChild(pmChipList);
+        card.appendChild(pmBlock);
+
+        contentArea.appendChild(card);
+      });
+    }
+  } else if (currentTab === "evangelists") {
+    // 탭 2: 전도인별 통계
+    const sortedPeople = Object.keys(personStats).sort((a, b) => {
+      const diff = personStats[b].total - personStats[a].total;
+      if (diff !== 0) return diff;
+      return a.localeCompare(b, "ko-KR");
+    });
+
+    if (!sortedPeople.length) {
+      const emptyBox = document.createElement("div");
+      emptyBox.className = "volunteer-report-none-text";
+      emptyBox.style.padding = "30px 10px";
+      emptyBox.style.textAlign = "center";
+      emptyBox.textContent = "해당 월의 참여 전도인 기록이 없습니다.";
+      contentArea.appendChild(emptyBox);
+    } else {
+      const tableWrap = document.createElement("div");
+      tableWrap.className = "volunteer-report-table-wrap";
+      const table = document.createElement("table");
+      table.className = "volunteer-report-table";
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th class="volunteer-report-rank">순위</th>
+            <th>이름</th>
+            <th style="text-align:center;">총 참여</th>
+            <th style="text-align:center;">오전</th>
+            <th style="text-align:center;">오후</th>
+            <th>참여 일자</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sortedPeople.map((name, idx) => {
+            const stat = personStats[name];
+            return `
+              <tr>
+                <td class="volunteer-report-rank">${idx + 1}</td>
+                <td><strong>${name}</strong></td>
+                <td style="text-align:center;"><span class="volunteer-report-count-badge">${stat.total}회</span></td>
+                <td style="text-align:center; color:#1d4ed8;">${stat.am}회</td>
+                <td style="text-align:center; color:#b45309;">${stat.pm}회</td>
+                <td style="font-size:12px; color:#475569;">${stat.dates.join(", ")}</td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      `;
+      tableWrap.appendChild(table);
+      contentArea.appendChild(tableWrap);
+    }
+  } else if (currentTab === "delete") {
+    // 탭 3: 지난 기록 삭제 관리
+    const deleteBox = document.createElement("div");
+    deleteBox.className = "volunteer-report-delete-box";
+
+    // 과거 주간 목록 추출 (주간 내 모든 날짜가 오늘 이전인 주간들)
+    const weeks = state.volunteerWeeks || [];
+    const pastWeeks = weeks.filter(w => {
+      const days = w.days || [];
+      if (!days.length) {
+        const ws = w.weekStartISO || w.weekStartText || "";
+        return ws && ws < today;
+      }
+      return !days.some(d => d.isoDate && d.isoDate >= today);
+    }).sort((a, b) => {
+      const da = a.weekStartISO || a.weekStartText || "";
+      const db = b.weekStartISO || b.weekStartText || "";
+      return db.localeCompare(da); // 최근 과거순
+    });
+
+    if (!pastWeeks.length) {
+      deleteBox.innerHTML = `
+        <div class="volunteer-report-none-text" style="padding: 30px 10px; text-align: center;">
+          삭제할 수 있는 지난 봉사 신청 주간이 없습니다.<br />(오늘 이전의 완료된 주간만 이곳에 표시됩니다.)
+        </div>
+      `;
+      contentArea.appendChild(deleteBox);
+    } else {
+      const selectedWeekStarts = new Set();
+
+      const toolbar = document.createElement("div");
+      toolbar.className = "volunteer-report-delete-toolbar";
+
+      const selectAllLabel = document.createElement("label");
+      selectAllLabel.style.display = "flex";
+      selectAllLabel.style.alignItems = "center";
+      selectAllLabel.style.gap = "8px";
+      selectAllLabel.style.cursor = "pointer";
+      selectAllLabel.style.fontWeight = "700";
+      selectAllLabel.style.fontSize = "13px";
+
+      const selectAllCheck = document.createElement("input");
+      selectAllCheck.type = "checkbox";
+
+      selectAllLabel.appendChild(selectAllCheck);
+      const selectAllText = document.createElement("span");
+      selectAllText.textContent = `지난 주간 전체 선택 (총 ${pastWeeks.length}개)`;
+      selectAllLabel.appendChild(selectAllText);
+
+      const batchDeleteBtn = document.createElement("button");
+      batchDeleteBtn.type = "button";
+      batchDeleteBtn.className = "volunteer-report-delete-btn";
+      batchDeleteBtn.disabled = true;
+      batchDeleteBtn.textContent = `🗑 선택한 주간 삭제 (0개)`;
+
+      toolbar.appendChild(selectAllLabel);
+      toolbar.appendChild(batchDeleteBtn);
+      deleteBox.appendChild(toolbar);
+
+      const listContainer = document.createElement("div");
+      listContainer.style.display = "flex";
+      listContainer.style.flexDirection = "column";
+      listContainer.style.gap = "8px";
+
+      const updateBatchBtnState = () => {
+        const count = selectedWeekStarts.size;
+        batchDeleteBtn.disabled = count === 0;
+        batchDeleteBtn.textContent = `🗑 선택한 주간 삭제 (${count}개)`;
+        selectAllCheck.checked = count === pastWeeks.length && count > 0;
+      };
+
+      selectAllCheck.addEventListener("change", () => {
+        if (selectAllCheck.checked) {
+          pastWeeks.forEach(w => {
+            const ws = w.weekStartText || w.weekStartISO;
+            if (ws) selectedWeekStarts.add(ws);
+          });
+        } else {
+          selectedWeekStarts.clear();
+        }
+        listContainer.querySelectorAll("input[type='checkbox']").forEach(cb => {
+          cb.checked = selectAllCheck.checked;
+        });
+        updateBatchBtnState();
+      });
+
+      const executeDelete = async (weekStartsToDelete) => {
+        const count = weekStartsToDelete.length;
+        const ok = window.confirm(
+          `선택한 ${count}개 주간의 봉사 신청 및 해당 날짜의 차량 배정 기록을 영구 삭제할까요?\n(이 작업은 되돌릴 수 없습니다.)`
+        );
+        if (!ok) return;
+
+        setLoading(true, "선택한 지난 기록을 삭제하는 중...");
+        try {
+          const res = await deleteSelectedVolunteerWeeksFromSupabase(weekStartsToDelete);
+          if (!res.success) throw new Error(res.message);
+
+          await loadVolunteerConfig();
+          await loadData();
+          ensureVolunteerSelection();
+          renderVolunteerOverlay();
+          renderVolunteerReportOverlay();
+
+          setStatus(`선택한 지난 기록이 삭제되었습니다. (봉사신청 ${res.deletedWeeks}주, 차량배정 ${res.deletedCars}건)`);
+          alert(`삭제 완료!\n봉사 신청 주간: ${res.deletedWeeks}개\n차량 배정 기록: ${res.deletedCars}건`);
+        } catch (err) {
+          console.error("Delete selected volunteer weeks error:", err);
+          alert("삭제에 실패했습니다: " + err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      batchDeleteBtn.addEventListener("click", async () => {
+        const starts = Array.from(selectedWeekStarts);
+        if (!starts.length) return;
+        await executeDelete(starts);
+      });
+
+      pastWeeks.forEach(w => {
+        const weekStart = w.weekStartText || w.weekStartISO || "";
+        const days = w.days || [];
+        const participantCount = days.reduce((sum, d) => sum + ((d.participantEntries || []).length), 0);
+
+        const item = document.createElement("div");
+        item.className = "volunteer-report-delete-item";
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = selectedWeekStarts.has(weekStart);
+        cb.addEventListener("change", () => {
+          if (cb.checked) {
+            selectedWeekStarts.add(weekStart);
+          } else {
+            selectedWeekStarts.delete(weekStart);
+          }
+          updateBatchBtnState();
+        });
+
+        const info = document.createElement("div");
+        info.className = "volunteer-report-delete-info";
+
+        let dateRangeText = weekStart;
+        const wDate = parseVisitDate(weekStart);
+        if (wDate) {
+          const endD = new Date(wDate.getTime() + 6 * 24 * 60 * 60 * 1000);
+          dateRangeText = `${formatVolunteerDateText(weekStart)} ~ ${formatVolunteerDateText(toISODate(endD))}`;
+        }
+
+        info.innerHTML = `
+          <div class="volunteer-report-delete-title">${weekStart} 주간 (${dateRangeText})</div>
+          <div class="volunteer-report-delete-meta">봉사 날짜 ${days.length}일 | 신청자 ${participantCount}명·회</div>
+        `;
+
+        const singleDelBtn = document.createElement("button");
+        singleDelBtn.type = "button";
+        singleDelBtn.className = "volunteer-report-item-del-btn";
+        singleDelBtn.textContent = "삭제";
+        singleDelBtn.addEventListener("click", async () => {
+          await executeDelete([weekStart]);
+        });
+
+        item.appendChild(cb);
+        item.appendChild(info);
+        item.appendChild(singleDelBtn);
+        listContainer.appendChild(item);
+      });
+
+      deleteBox.appendChild(listContainer);
+      contentArea.appendChild(deleteBox);
+    }
+  }
+};
+
+
 const groupCardsByArea = () => {
   const byArea = {};
   (state.data.cards || []).forEach((card) => {
@@ -3191,9 +3842,7 @@ const renderAreas = () => {
   allOption.textContent = "전체구역";
   elements.filterArea.appendChild(allOption);
   const today = todayISO();
-  const isLeader =
-    state.user &&
-    (state.user.role === "관리자" || state.user.role === "인도자");
+  const canManageArea = isLeader();
   const areasRows = state.data.areas || [];
   let latestServiceDateStr = "";
   let hasTodayInProgress = false;
@@ -3342,7 +3991,7 @@ const renderAreas = () => {
 
       if (
         withAssignButton &&
-        isLeader &&
+        canManageArea &&
         ((inProgress && !isKsl) || isKsl) &&
         String(state.expandedAreaId) === String(areaId)
       ) {
@@ -3482,8 +4131,7 @@ const renderAreas = () => {
         withAssignButton &&
         hasDone &&
         !isKsl &&
-        state.user &&
-        (state.user.role === "인도자" || state.user.role === "관리자");
+        canManageArea;
       if (showStartButton) {
         const startBtn = document.createElement("button");
         startBtn.type = "button";
@@ -3511,7 +4159,7 @@ const renderAreas = () => {
       headerRow.append(leftBox, rightBox);
       fg.appendChild(headerRow);
 
-      if (inProgress && String(state.expandedAreaId) !== String(areaId) && isLeader) {
+      if (inProgress && String(state.expandedAreaId) !== String(areaId) && canManageArea) {
         const bg = document.createElement("div");
         bg.className = "list-item-bg";
         const completeAction = document.createElement("div");

@@ -97,6 +97,119 @@ const deleteVolunteerWeekFromSupabase = async (weekStart) => {
   }
 };
 
+const deleteExpiredDataFromSupabase = async () => {
+  if (!supabaseClient) return { success: false, message: "Supabase client not initialized" };
+  try {
+    const today = todayISO();
+
+    // 1. 지나간 봉사 신청 주간 삭제
+    //    - 주간의 모든 날짜(days)가 오늘 이전인 주간만 삭제
+    const { data: allWeeks, error: fetchError } = await supabaseClient
+      .from("volunteer_weeks")
+      .select("*");
+
+    if (fetchError) throw fetchError;
+
+    const expiredWeekStarts = (allWeeks || [])
+      .filter(row => {
+        const days = (row.data && row.data.days) || [];
+        if (days.length === 0) {
+          // 날짜 정보가 없으면 week_start 기준으로 판단 (주간 시작 + 7일이 오늘 이전)
+          const ws = row.week_start || "";
+          if (!ws) return true;
+          const wsDate = new Date(ws);
+          if (isNaN(wsDate.getTime())) return false;
+          const weekEnd = new Date(wsDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+          return weekEnd.toISOString().slice(0, 10) < today;
+        }
+        // 주간 내 날짜 중 오늘 이후인 것이 하나도 없으면 지나간 주간
+        return !days.some(d => d.isoDate && d.isoDate >= today);
+      })
+      .map(row => row.week_start);
+
+    let deletedWeeks = 0;
+    for (const weekStart of expiredWeekStarts) {
+      const { error } = await supabaseClient
+        .from("volunteer_weeks")
+        .delete()
+        .eq("week_start", weekStart);
+      if (!error) deletedWeeks++;
+    }
+
+    // 2. 지나간 차량 배정 삭제 (오늘 이전 날짜)
+    const { error: carDeleteError, count: deletedCars } = await supabaseClient
+      .from("car_assignments")
+      .delete({ count: "exact" })
+      .lt("date", today);
+
+    if (carDeleteError) throw carDeleteError;
+
+    return {
+      success: true,
+      deletedWeeks,
+      deletedCars: deletedCars || 0
+    };
+  } catch (err) {
+    console.error("Failed to delete expired data:", err);
+    return { success: false, message: err.message };
+  }
+};
+
+const deleteSelectedVolunteerWeeksFromSupabase = async (weekStarts) => {
+  if (!supabaseClient) return { success: false, message: "Supabase client not initialized" };
+  if (!weekStarts || !weekStarts.length) return { success: false, message: "선택된 주간이 없습니다." };
+  try {
+    // 1. 선택된 주간 정보 가져와서 포함된 날짜들 수집 (차량 배정 삭제용)
+    const { data: weeksToDelete, error: fetchError } = await supabaseClient
+      .from("volunteer_weeks")
+      .select("*")
+      .in("week_start", weekStarts);
+
+    if (fetchError) throw fetchError;
+
+    const datesToDelete = new Set();
+    (weeksToDelete || []).forEach(row => {
+      const days = (row.data && row.data.days) || [];
+      days.forEach(d => {
+        if (d.isoDate) datesToDelete.add(d.isoDate);
+      });
+      if (row.week_start) datesToDelete.add(row.week_start);
+    });
+
+    // 2. 선택된 volunteer_weeks 삭제
+    let deletedWeeks = 0;
+    for (const weekStart of weekStarts) {
+      const { error } = await supabaseClient
+        .from("volunteer_weeks")
+        .delete()
+        .eq("week_start", weekStart);
+      if (!error) deletedWeeks++;
+    }
+
+    // 3. 해당 날짜들의 차량 배정 삭제
+    let deletedCars = 0;
+    if (datesToDelete.size > 0) {
+      const dateArray = Array.from(datesToDelete);
+      for (const d of dateArray) {
+        const { error: carDeleteError, count } = await supabaseClient
+          .from("car_assignments")
+          .delete({ count: "exact" })
+          .eq("date", d);
+        if (!carDeleteError && count) deletedCars += count;
+      }
+    }
+
+    return {
+      success: true,
+      deletedWeeks,
+      deletedCars
+    };
+  } catch (err) {
+    console.error("Failed to delete selected volunteer weeks:", err);
+    return { success: false, message: err.message };
+  }
+};
+
 const batchUpdateVolunteerWeekdayMemos = async (weekday, slotName, memo) => {
   if (!supabaseClient) return { success: false, message: "Supabase client not initialized" };
   try {
@@ -242,6 +355,10 @@ const loadVolunteerConfig = async () => {
 };
 
 const syncCardInfoOnly = async () => {
+  if (!isSuperAdmin()) {
+    alert("최고관리자 권한이 필요합니다.");
+    return;
+  }
   if (!supabaseClient) {
     alert("Supabase 설정이 올바르지 않습니다.");
     return;
@@ -285,6 +402,10 @@ const syncCardInfoOnly = async () => {
 };
 
 const migrateToSupabase = async () => {
+  if (!isSuperAdmin()) {
+    alert("최고관리자 권한이 필요합니다.");
+    return;
+  }
   if (!supabaseClient) {
     alert("Supabase 설정이 올바르지 않습니다.");
     return;
@@ -480,7 +601,7 @@ const migrateToSupabase = async () => {
 };
 
 const migrateToSheets = async () => {
-  if (!state.isSuperAdmin) {
+  if (!isSuperAdmin()) {
     alert("최고관리자 권한이 필요합니다.");
     return;
   }

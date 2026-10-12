@@ -1,16 +1,15 @@
 const updateMenuVisibility = () => {
   if (!state.user) return;
-  const userRole = String(state.user.role || "").trim();
-  const isAdmin = userRole === "관리자";
-  const isLeader = userRole === "인도자";
-  const isSuper = state.isSuperAdmin === true;
+  const isAdm = isAdmin();
+  const isLdr = isLeader();
+  const isSuper = isSuperAdmin();
 
   document.querySelectorAll(".admin-only").forEach((el) => {
-    el.classList.toggle("hidden", !isAdmin);
+    el.classList.toggle("hidden", !isAdm);
   });
 
   document.querySelectorAll(".leader-only").forEach((el) => {
-    el.classList.toggle("hidden", !isAdmin && !isLeader);
+    el.classList.toggle("hidden", !isLdr);
   });
 
   document.querySelectorAll(".super-admin-only").forEach((el) => {
@@ -26,6 +25,21 @@ const enterDashboard = async (user) => {
   elements.loginPanel.classList.add("hidden");
   elements.dashboard.classList.remove("hidden");
   await loadData();
+  if (state.user && state.data.evangelists && state.data.evangelists.length) {
+    const freshUser = state.data.evangelists.find((e) => e["이름"] === state.user.name);
+    if (freshUser && freshUser["역할"] && freshUser["역할"] !== state.user.role) {
+      state.user.role = freshUser["역할"];
+      state.isSuperAdmin = state.user.role === "최고관리자";
+      elements.userInfo.textContent = `${state.user.name} (${state.user.role})`;
+      updateMenuVisibility();
+      try {
+        window.localStorage.setItem(
+          "mcUser",
+          JSON.stringify({ name: state.user.name, role: state.user.role, isSuper: state.isSuperAdmin })
+        );
+      } catch (e) {}
+    }
+  }
   if (!state.expandedAreaId && state.filterArea === "all") {
     const inProgressAreas = getAllInProgressAreas();
     if (inProgressAreas.length === 1) {
@@ -74,11 +88,11 @@ const login = async () => {
         const admin = config.config_value;
         if (name === admin.id && password === admin.pass) {
           state.isSuperAdmin = true;
-          const superUser = { name: "최고관리자", role: "관리자" };
+          const superUser = { name: "최고관리자", role: "최고관리자" };
           try {
             window.localStorage.setItem(
               "mcUser",
-              JSON.stringify({ name: "최고관리자", role: "관리자", isSuper: true })
+              JSON.stringify({ name: "최고관리자", role: "최고관리자", isSuper: true })
             );
           } catch (e) {}
           await enterDashboard(superUser);
@@ -101,12 +115,13 @@ const login = async () => {
       return;
     }
 
-    state.isSuperAdmin = false;
-    const user = { role: data.role || "전도인", name: data.name };
+    const userRole = String(data.role || "전도인").trim();
+    state.isSuperAdmin = userRole === "최고관리자";
+    const user = { role: userRole, name: data.name };
     try {
       window.localStorage.setItem(
         "mcUser",
-        JSON.stringify({ name: user.name, role: user.role })
+        JSON.stringify({ name: user.name, role: user.role, isSuper: state.isSuperAdmin })
       );
     } catch (e) {}
     await enterDashboard(user);
@@ -128,8 +143,9 @@ const tryAutoLogin = async () => {
     if (!data || !data.name || !data.role) {
       return;
     }
-    state.isSuperAdmin = data.isSuper === true;
-    await enterDashboard({ name: data.name, role: data.role });
+    const userRole = String(data.role || "").trim();
+    state.isSuperAdmin = data.isSuper === true || userRole === "최고관리자";
+    await enterDashboard({ name: data.name, role: userRole });
   } catch (e) {}
 };
 
